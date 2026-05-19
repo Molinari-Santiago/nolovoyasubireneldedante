@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import type { Producto, CategoriaProducto } from "@/types/producto";
-import { obtenerProductos } from "@/hooks/lib/api/productosApi";
+import { obtenerProductos, crearProducto } from "@/hooks/lib/api/productosApi";
 
 interface StockState {
   productos: Producto[];
@@ -11,6 +11,13 @@ interface StockState {
   error: string | null;
 
   cargarProductos: () => Promise<void>;
+  agregarProducto: (data: {
+    nombre: string;
+    precio: number;
+    categoria: CategoriaProducto;
+    stock: number;
+    disponible: boolean;
+  }) => Promise<void>;
   setCategoriaActiva: (cat: CategoriaProducto) => void;
   modificarStock: (id: string, delta: number) => void;
   toggleDisponibilidad: (id: string) => void;
@@ -44,6 +51,23 @@ export const useStockStore = create<StockState>((set, get) => ({
           error instanceof Error
             ? error.message
             : "No se pudieron cargar los productos desde el backend",
+      });
+    }
+  },
+
+  agregarProducto: async (data) => {
+    try {
+      set({ isLoading: true, error: null });
+      const result = await crearProducto(data);
+      set((state) => ({
+        productos: [...state.productos, result.producto],
+        isLoading: false,
+      }));
+    } catch (error) {
+      console.error("Error creando producto:", error);
+      set({
+        isLoading: false,
+        error: error instanceof Error ? error.message : "No se pudo crear el producto",
       });
     }
   },

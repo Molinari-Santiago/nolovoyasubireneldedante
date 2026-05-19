@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback, memo } from 'react';
+import { useState, useMemo, useCallback, memo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Minus, Trash2, ShoppingBag, ChevronRight } from 'lucide-react';
@@ -68,7 +68,14 @@ export default function PedidoPage() {
   const [mesaSeleccionadaId, setMesaSeleccionadaId] = useState<string>('');
 
   const mesas = useMesasStore((s) => s.mesas);
+  const cargarMesas = useMesasStore((s) => s.cargarMesas);
   const productos = useStockStore((s) => s.productos);
+  const cargarProductos = useStockStore((s) => s.cargarProductos);
+
+  useEffect(() => {
+    cargarMesas();
+    cargarProductos();
+  }, [cargarMesas, cargarProductos]);
 
   const {
     pedidoActual,
@@ -171,7 +178,6 @@ export default function PedidoPage() {
           >
             <option value="">— Seleccionar mesa —</option>
             {mesas
-              .filter((m) => m.estado !== 'libre')
               .map((m) => (
                 <option key={m.id} value={m.id}>
                   Mesa {m.numero} — {m.zona}
