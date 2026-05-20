@@ -3,11 +3,15 @@
 import { create } from "zustand";
 import type { Pedido, ItemPedido, EstadoCocina } from "@/types/pedido";
 import { generateId } from "@/hooks/lib/utils";
+import { crearPedido, obtenerPedidos, actualizarEstadoPedido } from "@/hooks/lib/api/pedidosApi";
+import { useMesasStore } from "@/store/mesasStore";
 
 interface PedidosState {
   pedidos: Pedido[];
   pedidoActual: Pedido | null;
   mesaActivaId: string | null;
+
+  cargarPedidos: () => Promise<void>;
 
   // Pedido actual (en construcción)
   iniciarPedido: (mesaId: string, numeroMesa: number, zona: string, personas: number) => void;
@@ -18,10 +22,10 @@ interface PedidosState {
   cancelarPedido: () => void;
 
   // Enviar a cocina
-  enviarPedido: () => Pedido | null;
+  enviarPedido: () => Promise<Pedido | null>;
 
   // Actualizar estado (desde cocina)
-  actualizarEstadoCocina: (pedidoId: string, estado: EstadoCocina) => void;
+  actualizarEstadoCocina: (pedidoId: string, estado: EstadoCocina) => Promise<void>;
 
   // Getters
   getPedidoPorMesa: (mesaId: string) => Pedido | undefined;
@@ -31,6 +35,16 @@ export const usePedidosStore = create<PedidosState>((set, get) => ({
   pedidos: [],
   pedidoActual: null,
   mesaActivaId: null,
+
+  cargarPedidos: async () => {
+    try {
+      const pedidos = await obtenerPedidos();
+      set({ pedidos });
+    } catch (error) {
+      console.error("Error cargando pedidos:", error);
+    }
+  },
+
   iniciarPedido: (mesaId, numeroMesa, zona, personas) => {
     const existente = get().pedidos.find((p) => p.mesaId === mesaId && p.estado !== 'entregado');
     if (existente) {
@@ -101,24 +115,67 @@ export const usePedidosStore = create<PedidosState>((set, get) => ({
 
   cancelarPedido: () => set({ pedidoActual: null }),
 
-  enviarPedido: () => {
+  enviarPedido: async () => {
     const { pedidoActual, pedidos } = get();
     if (!pedidoActual || pedidoActual.items.length === 0) return null;
-    const pedido: Pedido = { ...pedidoActual, estado: 'pendiente', actualizadoEn: new Date() };
-    const existIdx = pedidos.findIndex((p) => p.id === pedido.id);
+
+    // Si el pedido ya tiene un UUID de Supabase (es decir, ya existía en la DB)
+    // idealmente aquí haríamos una actualización en la base de datos (UPDATE).
+    // Si no lo tiene (es un generateId() temporal), creamos uno nuevo.
+    const isNew = pedidoActual.id.length < 20; 
+
+    let pedidoFinal: Pedido;
+
+    if (isNew) {
+      const res = await crearPedido({
+        mesaId: pedidoActual.mesaId,
+        numeroMesa: pedidoActual.numeroMesa,
+        zona: pedidoActual.zona,
+        personas: pedidoActual.personas,
+        total: pedidoActual.total,
+        items: pedidoActual.items.map(i => ({
+          productoId: i.productoId,
+          nombre: i.nombre,
+          cantidad: i.cantidad,
+          precioUnitario: i.precioUnitario,
+          subtotal: i.subtotal,
+          notas: i.notas
+        }))
+      });
+      pedidoFinal = res.pedido;
+    } else {
+      // (Si hubiera una API de actualización de items, iría aquí)
+      // Por ahora para este alcance, solo le devolvemos su estado a pendiente si se edita.
+      await actualizarEstadoPedido(pedidoActual.id, 'pendiente');
+      pedidoFinal = { ...pedidoActual, estado: 'pendiente', actualizadoEn: new Date() };
+    }
+
+    const existIdx = pedidos.findIndex((p) => p.id === pedidoFinal.id);
     const newPedidos = existIdx >= 0
-      ? pedidos.map((p) => (p.id === pedido.id ? pedido : p))
-      : [...pedidos, pedido];
+      ? pedidos.map((p) => (p.id === pedidoFinal.id ? pedidoFinal : p))
+      : [...pedidos, pedidoFinal];
+
     set({ pedidos: newPedidos, pedidoActual: null });
-    return pedido;
+
+    // Sincronización con el store de mesas
+    useMesasStore.getState().asignarPedido(pedidoFinal.mesaId, pedidoFinal.id);
+    useMesasStore.getState().setEstadoMesa(pedidoFinal.mesaId, 'esperando_pedido');
+
+    return pedidoFinal;
   },
 
-  actualizarEstadoCocina: (pedidoId, estado) =>
-    set((state) => ({
-      pedidos: state.pedidos.map((p) =>
-        p.id === pedidoId ? { ...p, estado, actualizadoEn: new Date() } : p
-      ),
-    })),
+  actualizarEstadoCocina: async (pedidoId, estado) => {
+    try {
+      await actualizarEstadoPedido(pedidoId, estado);
+      set((state) => ({
+        pedidos: state.pedidos.map((p) =>
+          p.id === pedidoId ? { ...p, estado, actualizadoEn: new Date() } : p
+        ),
+      }));
+    } catch (e) {
+      console.error("Error al actualizar en BD:", e);
+    }
+  },
 
   getPedidoPorMesa: (mesaId) =>
     get().pedidos.find((p) => p.mesaId === mesaId && p.estado !== 'entregado'),

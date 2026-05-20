@@ -1,17 +1,28 @@
 import { supabase } from "../supabaseClient";
-import type { Producto, CategoriaProducto } from "@/types/producto";
+import type { Producto, Categoria } from "@/types/producto";
 
-function normalizarCategoria(categoria?: string | null): CategoriaProducto {
-  if (categoria === "cafeteria") return "cafeteria";
-  if (categoria === "restaurante") return "restaurante";
-  if (categoria === "bebidas") return "bebidas";
-  if (categoria === "combos") return "combos";
+export async function obtenerCategorias(): Promise<Categoria[]> {
+  const { data, error } = await supabase.from('categorias').select('*').order('nombre');
 
-  return "restaurante";
+  if (error) {
+    console.error("Error al obtener categorías de Supabase:", error);
+    throw new Error(error.message);
+  }
+
+  // Deduplicación por nombre ignorando mayúsculas/minúsculas
+  const unicas = new Map<string, Categoria>();
+  (data || []).forEach((cat) => {
+    const nameLower = cat.nombre.trim().toLowerCase();
+    if (!unicas.has(nameLower)) {
+      unicas.set(nameLower, cat);
+    }
+  });
+
+  return Array.from(unicas.values());
 }
 
 export async function obtenerProductos(): Promise<Producto[]> {
-  const { data, error } = await supabase.from('productos').select('*');
+  const { data, error } = await supabase.from('productos').select('*, categorias(id, nombre)');
 
   if (error) {
     console.error("Error al obtener productos de Supabase:", error);
@@ -22,8 +33,9 @@ export async function obtenerProductos(): Promise<Producto[]> {
     id: String(producto.id),
     nombre: producto.nombre,
     precio: Number(producto.precio),
-    categoria: normalizarCategoria(producto.categoria),
-    stock: producto.stock ?? 0,
+    categoria_id: producto.categoria_id,
+    categoria: producto.categorias ? { id: producto.categorias.id, nombre: producto.categorias.nombre } : undefined,
+    stock: producto.stock_actual ?? 0,
     disponible: producto.disponible ?? true,
   }));
 }
@@ -31,7 +43,7 @@ export async function obtenerProductos(): Promise<Producto[]> {
 export async function crearProducto(data: {
   nombre: string;
   precio: number;
-  categoria: CategoriaProducto;
+  categoria_id: string;
   stock: number;
   disponible: boolean;
 }) {
@@ -41,17 +53,21 @@ export async function crearProducto(data: {
       {
         nombre: data.nombre,
         precio: data.precio,
-        categoria: data.categoria,
-        stock: data.stock,
+        categoria_id: data.categoria_id,
+        stock_actual: data.stock,
         disponible: data.disponible,
       }
     ])
-    .select()
-    .single();
+    .select('*, categorias(id, nombre)')
+    .maybeSingle();
 
   if (error) {
     console.error("Error al crear producto en Supabase:", error);
     throw new Error(error.message);
+  }
+
+  if (!nuevoProducto) {
+    throw new Error("No se pudo crear el producto");
   }
 
   return { 
@@ -60,8 +76,9 @@ export async function crearProducto(data: {
       id: String(nuevoProducto.id),
       nombre: nuevoProducto.nombre,
       precio: Number(nuevoProducto.precio),
-      categoria: normalizarCategoria(nuevoProducto.categoria),
-      stock: nuevoProducto.stock ?? 0,
+      categoria_id: nuevoProducto.categoria_id,
+      categoria: nuevoProducto.categorias ? { id: nuevoProducto.categorias.id, nombre: nuevoProducto.categorias.nombre } : undefined,
+      stock: nuevoProducto.stock_actual ?? 0,
       disponible: nuevoProducto.disponible ?? true,
     } 
   };

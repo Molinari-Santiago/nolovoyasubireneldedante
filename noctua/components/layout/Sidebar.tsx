@@ -12,6 +12,7 @@ import {
   LogOut,
   Menu,
   X,
+  History,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/mesas', icon: UtensilsCrossed, label: 'Mesas' },
   { href: '/dashboard/pedido', icon: ClipboardList, label: 'Pedidos' },
   { href: '/dashboard/cocina', icon: ChefHat, label: 'Cocina' },
+  { href: '/dashboard/historial', icon: History, label: 'Historial' },
   { href: '/dashboard/stock', icon: Package, label: 'Stock' },
   { href: '/dashboard/reservas', icon: CalendarDays, label: 'Reservas' },
 ] as const;

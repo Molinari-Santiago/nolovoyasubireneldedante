@@ -5,16 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Minus, TrendingUp, X, PackagePlus } from "lucide-react";
 import { useStockStore } from "@/store/stockStore";
 import { Toggle } from "@/components/ui/Toggle";
-import { CATEGORIAS_LABELS } from "@/hooks/lib/constants";
 import { formatARS, cn } from "@/hooks/lib/utils";
-import type { CategoriaProducto, Producto } from "@/types/producto";
-
-const CATEGORIAS: CategoriaProducto[] = [
-  "cafeteria",
-  "restaurante",
-  "bebidas",
-  "combos",
-];
+import type { Producto } from "@/types/producto";
 
 // ── Modal Nuevo Producto ───────────────────────────────────────────────────────
 
@@ -23,15 +15,18 @@ function ModalNuevoProducto({
   categoriaInicial,
 }: {
   onClose: () => void;
-  categoriaInicial: CategoriaProducto;
+  categoriaInicial: string | null;
 }) {
   const agregarProducto = useStockStore((s) => s.agregarProducto);
   const isLoading = useStockStore((s) => s.isLoading);
+  const categorias = useStockStore((s) => s.categorias);
 
   const [nombre, setNombre] = useState("");
   const [precio, setPrecio] = useState("");
   const [stock, setStock] = useState("0");
-  const [categoria, setCategoria] = useState<CategoriaProducto>(categoriaInicial);
+  const [categoriaId, setCategoriaId] = useState<string>(
+    categoriaInicial || (categorias.length > 0 ? categorias[0].id : "")
+  );
   const [disponible, setDisponible] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
@@ -41,6 +36,7 @@ function ModalNuevoProducto({
     setError(null);
 
     if (!nombre.trim()) return setError("El nombre es obligatorio.");
+    if (!categoriaId) return setError("Debes seleccionar una categoría.");
     const precioNum = parseFloat(precio.replace(",", "."));
     if (isNaN(precioNum) || precioNum < 0) return setError("Precio inválido.");
     const stockNum = parseInt(stock);
@@ -51,7 +47,7 @@ function ModalNuevoProducto({
       await agregarProducto({
         nombre: nombre.trim(),
         precio: precioNum,
-        categoria,
+        categoria_id: categoriaId,
         stock: stockNum,
         disponible,
       });
@@ -162,13 +158,14 @@ function ModalNuevoProducto({
             </label>
             <select
               id="prod-categoria"
-              value={categoria}
-              onChange={(e) => setCategoria(e.target.value as CategoriaProducto)}
+              value={categoriaId}
+              onChange={(e) => setCategoriaId(e.target.value)}
               className="w-full bg-[#111] border border-[#2a2a2a] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#3a3a3a] transition-colors"
             >
-              {CATEGORIAS.map((cat) => (
-                <option key={cat} value={cat}>
-                  {CATEGORIAS_LABELS[cat]}
+              <option value="" disabled>Selecciona una categoría</option>
+              {categorias.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.nombre.charAt(0).toUpperCase() + cat.nombre.slice(1)}
                 </option>
               ))}
             </select>
@@ -202,7 +199,7 @@ function ModalNuevoProducto({
             </button>
             <button
               type="submit"
-              disabled={guardando || isLoading}
+              disabled={guardando || isLoading || categorias.length === 0}
               aria-label="Guardar nuevo producto"
               className="flex-1 py-2.5 rounded-xl bg-white text-black text-sm font-bold hover:bg-[#e5e5e5] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
@@ -318,6 +315,7 @@ const StockCard = memo(function StockCard({
 
 export default function StockPage() {
   const productos = useStockStore((s) => s.productos);
+  const categorias = useStockStore((s) => s.categorias);
   const categoriaActiva = useStockStore((s) => s.categoriaActiva);
   const setCategoriaActiva = useStockStore((s) => s.setCategoriaActiva);
   const modificarStock = useStockStore((s) => s.modificarStock);
@@ -328,6 +326,7 @@ export default function StockPage() {
   const getTotalValorizado = useStockStore((s) => s.getTotalValorizado);
   const getTotalPorCategoria = useStockStore((s) => s.getTotalPorCategoria);
 
+  const cargarCategorias = useStockStore((s) => s.cargarCategorias);
   const cargarProductos = useStockStore((s) => s.cargarProductos);
   const isLoading = useStockStore((s) => s.isLoading);
   const error = useStockStore((s) => s.error);
@@ -335,8 +334,9 @@ export default function StockPage() {
   const [modalAbierto, setModalAbierto] = useState(false);
 
   useEffect(() => {
-    cargarProductos();
-  }, [cargarProductos]);
+    // Cargar categorias primero, y luego productos
+    cargarCategorias().then(() => cargarProductos());
+  }, [cargarCategorias, cargarProductos]);
 
   const productosFiltrados = getProductosPorCategoria(categoriaActiva);
   const totalGeneral = getTotalValorizado();
@@ -370,20 +370,20 @@ export default function StockPage() {
         <div className="flex-1 min-w-0 flex flex-col gap-4">
           {/* Tabs + Add button */}
           <div className="flex items-center gap-2">
-            <div className="flex-1 flex gap-1 bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-1">
-              {CATEGORIAS.map((cat) => (
+            <div className="flex-1 flex gap-1 bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-1 overflow-x-auto">
+              {categorias.map((cat) => (
                 <button
-                  key={cat}
-                  onClick={() => setCategoriaActiva(cat)}
-                  aria-pressed={categoriaActiva === cat}
+                  key={cat.id}
+                  onClick={() => setCategoriaActiva(cat.id)}
+                  aria-pressed={categoriaActiva === cat.id}
                   className={cn(
-                    "flex-1 py-2 px-3 rounded-lg text-xs font-bold tracking-widest uppercase transition-all duration-150",
-                    categoriaActiva === cat
+                    "flex-1 py-2 px-3 rounded-lg text-xs font-bold tracking-widest uppercase transition-all duration-150 whitespace-nowrap",
+                    categoriaActiva === cat.id
                       ? "bg-white text-black"
                       : "text-[#676B67] hover:text-white"
                   )}
                 >
-                  {CATEGORIAS_LABELS[cat]}
+                  {cat.nombre}
                 </button>
               ))}
             </div>
@@ -403,7 +403,7 @@ export default function StockPage() {
           <div className="flex-1 overflow-y-auto">
             <AnimatePresence mode="popLayout">
               <motion.div
-                key={categoriaActiva}
+                key={categoriaActiva || "empty"}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
@@ -450,16 +450,16 @@ export default function StockPage() {
 
           {/* Per category */}
           <div className="space-y-3">
-            {CATEGORIAS.map((cat) => {
-              const total = getTotalPorCategoria(cat);
-              const prods = getProductosPorCategoria(cat);
+            {categorias.map((cat) => {
+              const total = getTotalPorCategoria(cat.id);
+              const prods = getProductosPorCategoria(cat.id);
               const disponibles = prods.filter((p) => p.disponible).length;
 
               return (
-                <div key={cat} className="space-y-1">
+                <div key={cat.id} className="space-y-1">
                   <div className="flex justify-between">
-                    <span className="text-xs text-[#BCB9B9] font-semibold">
-                      {CATEGORIAS_LABELS[cat]}
+                    <span className="text-xs text-[#BCB9B9] font-semibold capitalize">
+                      {cat.nombre}
                     </span>
 
                     <span className="text-xs text-[#676B67]">

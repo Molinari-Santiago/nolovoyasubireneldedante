@@ -1,127 +1,156 @@
-import { apiFetch } from "./client";
+import { supabase } from "@/hooks/lib/supabaseClient";
 import type { Pedido, EstadoCocina } from "@/types/pedido";
 
-interface ItemPedidoBackend {
-  productoId: number | string;
-  nombre?: string;
+interface DBItem {
+  producto_id: string;
+  nombre: string;
   cantidad: number;
-  precioUnitario?: number;
-  precio?: number;
-  subtotal?: number;
+  precio_unitario: number;
+  subtotal: number;
   notas?: string;
 }
 
-interface PedidoBackend {
-  id: number | string;
-  mesaId: number | string;
-  numeroMesa?: number;
-  zona?: string;
-  items?: ItemPedidoBackend[];
-  total?: number;
-  estado?: EstadoCocina;
-  creadoEn?: string;
-  actualizadoEn?: string;
-  personas?: number;
+interface DBPedido {
+  id: string;
+  mesa_id: string;
+  numero_mesa: number;
+  zona: string;
+  personas: number;
+  total: number;
+  estado: string;
+  created_at: string;
+  pedido_items?: DBItem[];
 }
 
-type RespuestaPedidos =
-  | PedidoBackend[]
-  | {
-      pedidos?: PedidoBackend[];
-      data?: PedidoBackend[];
-      results?: PedidoBackend[];
-    };
-
-function mapPedidoBackendToFrontend(pedido: PedidoBackend): Pedido {
+function mapDBPedido(p: DBPedido): Pedido {
   return {
-    id: String(pedido.id),
-    mesaId: String(pedido.mesaId),
-    numeroMesa: pedido.numeroMesa ?? 0,
-    zona: pedido.zona ?? "SALÓN PRINCIPAL",
-    items: (pedido.items ?? []).map((item) => ({
-      productoId: String(item.productoId),
-      nombre: item.nombre ?? "Producto",
-      cantidad: item.cantidad,
-      precioUnitario: item.precioUnitario ?? item.precio ?? 0,
-      subtotal:
-        item.subtotal ??
-        item.cantidad * (item.precioUnitario ?? item.precio ?? 0),
-      notas: item.notas,
+    id: p.id,
+    mesaId: p.mesa_id,
+    numeroMesa: p.numero_mesa,
+    zona: p.zona,
+    items: (p.pedido_items || []).map((i) => ({
+      productoId: i.producto_id,
+      nombre: i.nombre,
+      cantidad: i.cantidad,
+      precioUnitario: i.precio_unitario,
+      subtotal: i.subtotal,
+      notas: i.notas,
     })),
-    total: pedido.total ?? 0,
-    estado: pedido.estado ?? "pendiente",
-    creadoEn: pedido.creadoEn ? new Date(pedido.creadoEn) : new Date(),
-    actualizadoEn: pedido.actualizadoEn
-      ? new Date(pedido.actualizadoEn)
-      : new Date(),
-    personas: pedido.personas ?? 1,
+    total: p.total,
+    estado: p.estado as EstadoCocina,
+    creadoEn: new Date(p.created_at || new Date().toISOString()),
+    actualizadoEn: new Date(), // Usamos la fecha local
+    personas: p.personas,
   };
 }
 
-// Mock local de pedidos
-let mockPedidosBackend: PedidoBackend[] = [
-  {
-    id: 1,
-    mesaId: 2,
-    numeroMesa: 2,
-    zona: "SALÓN PRINCIPAL",
-    items: [
-      { productoId: 2, nombre: "Hamburguesa Simple", cantidad: 2, precio: 8500, subtotal: 17000 },
-      { productoId: 3, nombre: "Agua Mineral", cantidad: 2, precio: 1500, subtotal: 3000 }
-    ],
-    total: 20000,
-    estado: "preparando",
-    creadoEn: new Date().toISOString(),
-    actualizadoEn: new Date().toISOString(),
-    personas: 2
-  }
-];
-
 export async function obtenerPedidos(): Promise<Pedido[]> {
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  return mockPedidosBackend.map(mapPedidoBackendToFrontend);
+  const { data, error } = await supabase
+    .from("pedidos")
+    .select("*, pedido_items(*)")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Error al obtener pedidos:", error);
+    throw new Error(error.message);
+  }
+
+  return (data as DBPedido[]).map(mapDBPedido);
+}
+
+export async function obtenerPedidosPorFecha(inicio: string, fin: string): Promise<Pedido[]> {
+  const { data, error } = await supabase
+    .from("pedidos")
+    .select("*, pedido_items(*)")
+    .gte("created_at", inicio)
+    .lte("created_at", fin)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Error al obtener pedidos por fecha:", error);
+    throw new Error(error.message);
+  }
+
+  return (data as DBPedido[]).map(mapDBPedido);
 }
 
 export async function crearPedido(data: {
-  mesaId: number;
+  mesaId: string;
+  numeroMesa: number;
+  zona: string;
   personas: number;
+  total: number;
   items: {
-    productoId: number;
+    productoId: string;
+    nombre: string;
     cantidad: number;
+    precioUnitario: number;
+    subtotal: number;
     notas?: string;
   }[];
-}) {
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  const nuevoPedido: PedidoBackend = {
-    id: Date.now(),
-    mesaId: data.mesaId,
-    numeroMesa: data.mesaId, // Mock as mesaId
-    zona: "SALÓN PRINCIPAL",
-    items: data.items.map(item => ({
-      productoId: item.productoId,
-      cantidad: item.cantidad,
-      precio: 1000, // mock price
-      subtotal: item.cantidad * 1000,
-      notas: item.notas
-    })),
-    total: data.items.reduce((acc, item) => acc + (item.cantidad * 1000), 0),
-    estado: "pendiente",
-    creadoEn: new Date().toISOString(),
-    actualizadoEn: new Date().toISOString(),
-    personas: data.personas
-  };
-  mockPedidosBackend.push(nuevoPedido);
-  return { success: true, pedido: mapPedidoBackendToFrontend(nuevoPedido) };
+}): Promise<{ success: boolean; pedido: Pedido }> {
+  // 1. Crear el pedido
+  const { data: pedidoData, error: pedidoError } = await supabase
+    .from("pedidos")
+    .insert({
+      mesa_id: data.mesaId,
+      numero_mesa: data.numeroMesa,
+      zona: data.zona,
+      personas: data.personas,
+      total: data.total,
+      estado: "pendiente",
+    })
+    .select()
+    .single();
+
+  if (pedidoError) {
+    console.error("Error al crear pedido:", pedidoError);
+    throw new Error(pedidoError.message);
+  }
+
+  // 2. Insertar los items
+  const itemsToInsert = data.items.map((i) => ({
+    pedido_id: pedidoData.id,
+    producto_id: i.productoId,
+    nombre: i.nombre,
+    cantidad: i.cantidad,
+    precio_unitario: i.precioUnitario,
+    subtotal: i.subtotal,
+    notas: i.notas,
+  }));
+
+  const { error: itemsError } = await supabase.from("pedido_items").insert(itemsToInsert);
+
+  if (itemsError) {
+    console.error("Error al crear items del pedido:", itemsError);
+    throw new Error(itemsError.message);
+  }
+
+  // 3. Devolver el pedido completo con los items
+  const { data: fullPedido, error: fetchError } = await supabase
+    .from("pedidos")
+    .select("*, pedido_items(*)")
+    .eq("id", pedidoData.id)
+    .single();
+
+  if (fetchError) throw new Error(fetchError.message);
+
+  return { success: true, pedido: mapDBPedido(fullPedido as DBPedido) };
 }
 
 export async function actualizarEstadoPedido(
   pedidoId: string,
   estado: EstadoCocina
 ) {
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  const idNum = Number(pedidoId);
-  mockPedidosBackend = mockPedidosBackend.map(p => 
-    p.id === idNum || p.id === pedidoId ? { ...p, estado, actualizadoEn: new Date().toISOString() } : p
-  );
+  const { error } = await supabase
+    .from("pedidos")
+    .update({ estado }) // Omitimos actualizado_en para no requerir esa columna en la DB si no existe
+    .eq("id", pedidoId);
+
+  if (error) {
+    console.error("Error al actualizar estado del pedido:", error);
+    throw new Error(error.message);
+  }
+
   return { success: true };
 }

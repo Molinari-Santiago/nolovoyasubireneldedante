@@ -1,36 +1,51 @@
 "use client";
 
 import { create } from "zustand";
-import type { Producto, CategoriaProducto } from "@/types/producto";
-import { obtenerProductos, crearProducto } from "@/hooks/lib/api/productosApi";
+import type { Producto, Categoria } from "@/types/producto";
+import { obtenerProductos, crearProducto, obtenerCategorias } from "@/hooks/lib/api/productosApi";
 
 interface StockState {
+  categorias: Categoria[];
   productos: Producto[];
-  categoriaActiva: CategoriaProducto;
+  categoriaActiva: string | null;
   isLoading: boolean;
   error: string | null;
 
+  cargarCategorias: () => Promise<void>;
   cargarProductos: () => Promise<void>;
   agregarProducto: (data: {
     nombre: string;
     precio: number;
-    categoria: CategoriaProducto;
+    categoria_id: string;
     stock: number;
     disponible: boolean;
   }) => Promise<void>;
-  setCategoriaActiva: (cat: CategoriaProducto) => void;
+  setCategoriaActiva: (catId: string) => void;
   modificarStock: (id: string, delta: number) => void;
   toggleDisponibilidad: (id: string) => void;
-  getProductosPorCategoria: (cat: CategoriaProducto) => Producto[];
+  getProductosPorCategoria: (catId: string | null) => Producto[];
   getTotalValorizado: () => number;
-  getTotalPorCategoria: (cat: CategoriaProducto) => number;
+  getTotalPorCategoria: (catId: string | null) => number;
 }
 
 export const useStockStore = create<StockState>((set, get) => ({
+  categorias: [],
   productos: [],
-  categoriaActiva: "cafeteria",
+  categoriaActiva: null,
   isLoading: false,
   error: null,
+
+  cargarCategorias: async () => {
+    try {
+      const categorias = await obtenerCategorias();
+      set((state) => ({
+        categorias,
+        categoriaActiva: state.categoriaActiva || (categorias.length > 0 ? categorias[0].id : null),
+      }));
+    } catch (error) {
+      console.error("Error cargando categorías:", error);
+    }
+  },
 
   cargarProductos: async () => {
     try {
@@ -72,7 +87,7 @@ export const useStockStore = create<StockState>((set, get) => ({
     }
   },
 
-  setCategoriaActiva: (cat) => set({ categoriaActiva: cat }),
+  setCategoriaActiva: (catId) => set({ categoriaActiva: catId }),
 
   modificarStock: (id, delta) =>
     set((state) => ({
@@ -90,14 +105,18 @@ export const useStockStore = create<StockState>((set, get) => ({
       ),
     })),
 
-  getProductosPorCategoria: (cat) =>
-    get().productos.filter((p) => p.categoria === cat),
+  getProductosPorCategoria: (catId) => {
+    if (!catId) return get().productos;
+    return get().productos.filter((p) => p.categoria_id === catId);
+  },
 
   getTotalValorizado: () =>
     get().productos.reduce((acc, p) => acc + p.precio * (p.stock ?? 0), 0),
 
-  getTotalPorCategoria: (cat) =>
-    get()
-      .productos.filter((p) => p.categoria === cat)
-      .reduce((acc, p) => acc + p.precio * (p.stock ?? 0), 0),
+  getTotalPorCategoria: (catId) => {
+    if (!catId) return 0;
+    return get()
+      .productos.filter((p) => p.categoria_id === catId)
+      .reduce((acc, p) => acc + p.precio * (p.stock ?? 0), 0);
+  }
 }));
