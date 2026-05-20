@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import type { Mesa, EstadoMesa } from "@/types/mesa";
-import { obtenerMesas, crearMesa } from "@/hooks/lib/api/mesasApi";
+import { obtenerMesas, crearMesa, eliminarMesa } from "@/hooks/lib/api/mesasApi";
 interface MesasState {
   mesas: Mesa[];
   mesaSeleccionada: string | null;
@@ -11,13 +11,13 @@ interface MesasState {
   error: string | null;
 
   cargarMesas: () => Promise<void>;
-
   crearMesaDesdePanel: (data: {
     numero: number;
     capacidad: number;
     ubicacion: string;
   }) => Promise<void>;
-
+  eliminarMesaDesdePanel: (id: string) => Promise<void>;
+  
   seleccionarMesa: (id: string | null) => void;
   toggleSeleccionMesa: (id: string) => void;
   limpiarSeleccion: () => void;
@@ -90,7 +90,36 @@ export const useMesasStore = create<MesasState>((set) => ({
       });
     }
   },
+  eliminarMesaDesdePanel: async (id) => {
+  try {
+    const confirmar = confirm("¿Seguro que querés eliminar esta mesa?");
 
+    if (!confirmar) return;
+
+    set({ isLoading: true, error: null });
+
+    await eliminarMesa(id);
+
+    const mesas = await obtenerMesas();
+
+    set({
+      mesas,
+      isLoading: false,
+      mesaSeleccionada: null,
+      mesasSeleccionadas: [],
+    });
+  } catch (error) {
+    console.error("Error eliminando mesa:", error);
+
+    set({
+      isLoading: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "No se pudo eliminar la mesa",
+    });
+  }
+},
   seleccionarMesa: (id) =>
     set({
       mesaSeleccionada: id,

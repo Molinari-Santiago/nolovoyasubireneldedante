@@ -75,3 +75,8 @@ export async function crearMesa(data: {
     body: JSON.stringify(data),
   });
 }
+export async function eliminarMesa(id: string) {
+  return apiFetch(`/mesas/${id}`, {
+    method: "DELETE",
+  });
+}

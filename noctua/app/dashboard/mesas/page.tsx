@@ -37,6 +37,7 @@ export default function MesasPage() {
 
   const cargarMesas = useMesasStore((s) => s.cargarMesas);
   const crearMesaDesdePanel = useMesasStore((s) => s.crearMesaDesdePanel);
+  const eliminarMesaDesdePanel = useMesasStore((s) => s.eliminarMesaDesdePanel);
   const isLoading = useMesasStore((s) => s.isLoading);
   const error = useMesasStore((s) => s.error);
 
@@ -245,13 +246,14 @@ export default function MesasPage() {
 
               <div className="flex flex-wrap gap-3">
                 {mesasZona.map((mesa) => (
-                  <MesaCard
-                    key={mesa.id}
-                    mesa={mesa}
-                    isSelected={mesasSeleccionadas.includes(mesa.id)}
-                    onSingleClick={handleSingleClick}
-                    onDoubleClick={handleDoubleClick}
-                  />
+              <MesaCard
+              key={mesa.id}
+              mesa={mesa}
+              isSelected={mesasSeleccionadas.includes(mesa.id)}
+              onSingleClick={handleSingleClick}
+              onDoubleClick={handleDoubleClick}
+              onDelete={eliminarMesaDesdePanel}
+/>
                 ))}
               </div>
             </div>

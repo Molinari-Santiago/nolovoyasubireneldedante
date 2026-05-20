@@ -49,6 +49,28 @@ export const crearMesa = async (req, res) => {
   }
 };
 
+export const eliminarMesa = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await prisma.mesa.delete({
+      where: {
+        id: Number(id),
+      },
+    });
+
+    res.json({
+      mensaje: "Mesa eliminada correctamente",
+    });
+  } catch (error) {
+    console.error("Error eliminando mesa:", error);
+
+    res.status(500).json({
+      mensaje: "Error al eliminar la mesa",
+    });
+  }
+};
+
 export const obtenerMesas = async (req, res) => {
   try {
     const { personas } = req.query;

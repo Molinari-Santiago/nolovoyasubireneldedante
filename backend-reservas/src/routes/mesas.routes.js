@@ -12,5 +12,6 @@ router.post("/", crearMesa);
 router.get("/", obtenerMesas);
 router.get("/disponibles", obtenerMesasDisponibles);
 router.get("/estado", obtenerEstadoMesas);
+router.delete("/:id", eliminarMesa);
 
 export default router;

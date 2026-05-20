@@ -1,16 +1,23 @@
-import { Sidebar } from '@/components/layout/Sidebar';
-import { Navbar } from '@/components/layout/Navbar';
+import { Sidebar } from "@/components/layout/Sidebar";
+import { Navbar } from "@/components/layout/Navbar";
+import styles from "./dashboard.module.css";
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <div className="min-h-screen bg-black">
+    <div className={styles.dashboard}>
       <Sidebar />
-      <div className="lg:ml-64 flex flex-col min-h-screen">
+
+      <main className={styles.main}>
         <Navbar />
-        <main className="flex-1 p-6 overflow-auto">
+
+        <div className={styles.content}>
           {children}
-        </main>
-      </div>
+        </div>
+      </main>
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { mesasService } from '@/services/mesasService';
 import { useMesasStore } from '@/store/mesasStore';
-import { queryClient } from '@/lib/queryClient';
+import { queryClient } from '@/hooks/lib/queryClient';
 import type { EstadoMesa } from '@/types/mesa';
 
 export const useMesas = () => {
