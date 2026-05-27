@@ -1,18 +1,14 @@
 'use client';
 
-import { useState, useMemo, useCallback, memo } from 'react';
+import { useState, useMemo, useCallback, memo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Plus, Minus, Trash2, ShoppingBag, ChevronRight } from 'lucide-react';
 import { usePedidosStore } from '@/store/pedidosStore';
 import { useMesasStore } from '@/store/mesasStore';
 import { useStockStore } from '@/store/stockStore';
 import { Button } from '@/components/ui/Button';
-import { CATEGORIAS_LABELS } from '@/hooks/lib/constants';
 import { formatARS, cn } from '@/hooks/lib/utils';
-import type { CategoriaProducto } from '@/types/producto';
-
-const CATEGORIAS: CategoriaProducto[] = ['cafeteria', 'restaurante', 'bebidas', 'combos'];
 
 // ── Producto Item ──────────────────────────────────────────────────────────────
 
@@ -64,11 +60,26 @@ const ProductoItem = memo(function ProductoItem({
 
 export default function PedidoPage() {
   const router = useRouter();
-  const [categoriaActiva, setCategoriaActiva] = useState<CategoriaProducto>('cafeteria');
+  const [categoriaActiva, setCategoriaActiva] = useState<string>('');
   const [mesaSeleccionadaId, setMesaSeleccionadaId] = useState<string>('');
 
   const mesas = useMesasStore((s) => s.mesas);
+  const cargarMesas = useMesasStore((s) => s.cargarMesas);
   const productos = useStockStore((s) => s.productos);
+  const categorias = useStockStore((s) => s.categorias);
+  const cargarCategorias = useStockStore((s) => s.cargarCategorias);
+  const cargarProductos = useStockStore((s) => s.cargarProductos);
+
+  useEffect(() => {
+    cargarMesas();
+    cargarCategorias().then(() => cargarProductos());
+  }, [cargarMesas, cargarCategorias, cargarProductos]);
+
+  useEffect(() => {
+    if (!categoriaActiva && categorias.length > 0) {
+      setCategoriaActiva(categorias[0].id);
+    }
+  }, [categorias, categoriaActiva]);
 
   const {
     pedidoActual,
@@ -84,7 +95,7 @@ export default function PedidoPage() {
   const mesaActiva = mesas.find((m) => m.id === (mesaActivaId ?? mesaSeleccionadaId));
 
   const productosFiltrados = useMemo(
-    () => productos.filter((p) => p.categoria === categoriaActiva),
+    () => productos.filter((p) => p.categoria_id === categoriaActiva),
     [productos, categoriaActiva]
   );
 
@@ -104,8 +115,8 @@ export default function PedidoPage() {
     agregarItem({ productoId: id, nombre, cantidad: 1, precioUnitario: precio });
   }, [mesaActiva, pedidoActual, iniciarPedido, agregarItem]);
 
-  const handleEnviar = () => {
-    const pedido = enviarPedido();
+  const handleEnviar = async () => {
+    const pedido = await enviarPedido();
     if (pedido) {
       router.push('/dashboard/cocina');
     }
@@ -118,19 +129,19 @@ export default function PedidoPage() {
         <p className="text-xs font-semibold text-[#676B67] tracking-widest uppercase px-1 mb-1">
           Categoría
         </p>
-        {CATEGORIAS.map((cat) => (
+        {categorias.map((cat) => (
           <button
-            key={cat}
-            onClick={() => setCategoriaActiva(cat)}
-            aria-pressed={categoriaActiva === cat}
+            key={cat.id}
+            onClick={() => setCategoriaActiva(cat.id)}
+            aria-pressed={categoriaActiva === cat.id}
             className={cn(
-              'w-full py-3 px-4 rounded-xl text-sm font-bold tracking-wide transition-all duration-150 text-left',
-              categoriaActiva === cat
+              'w-full py-3 px-4 rounded-xl text-sm font-bold tracking-wide transition-all duration-150 text-left capitalize',
+              categoriaActiva === cat.id
                 ? 'bg-white text-black'
                 : 'bg-[#0f0f0f] border border-[#1a1a1a] text-[#676B67] hover:text-white hover:border-[#2a2a2a]'
             )}
           >
-            {CATEGORIAS_LABELS[cat]}
+            {cat.nombre}
           </button>
         ))}
       </div>
@@ -139,7 +150,7 @@ export default function PedidoPage() {
       <div className="flex-1 min-w-0 overflow-y-auto space-y-2 pr-1">
         <div className="flex items-center justify-between px-1 mb-3">
           <h3 className="font-display text-xl tracking-widest text-[#BCB9B9] uppercase">
-            {CATEGORIAS_LABELS[categoriaActiva]}
+            {categorias.find(c => c.id === categoriaActiva)?.nombre || ''}
           </h3>
           <span className="text-xs text-[#676B67]">{productosFiltrados.length} productos</span>
         </div>
@@ -171,7 +182,6 @@ export default function PedidoPage() {
           >
             <option value="">— Seleccionar mesa —</option>
             {mesas
-              .filter((m) => m.estado !== 'libre')
               .map((m) => (
                 <option key={m.id} value={m.id}>
                   Mesa {m.numero} — {m.zona}

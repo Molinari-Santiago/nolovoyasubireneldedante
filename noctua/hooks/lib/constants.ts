@@ -1,6 +1,5 @@
 import type { EstadoMesa } from "@/types/mesa";
 import type { EstadoCocina } from "@/types/pedido";
-import type { CategoriaProducto } from "@/types/producto";
 
 export const COLORES_ESTADO_MESA: Record<EstadoMesa, string> = {
   libre: "bg-gray-600",
@@ -41,12 +40,7 @@ export const TEXTO_ESTADO_COCINA: Record<EstadoCocina, string> = {
   entregado: "Entregado",
 };
 
-export const CATEGORIAS_LABELS: Record<CategoriaProducto, string> = {
-  cafeteria: "Cafetería",
-  restaurante: "Restaurante",
-  bebidas: "Bebidas",
-  combos: "Combos",
-};
+
 
 export const ZONAS_NAMES = [
   "TERRAZA EXTERIOR",
