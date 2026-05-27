@@ -92,10 +92,6 @@ export const useMesasStore = create<MesasState>((set) => ({
   },
   eliminarMesaDesdePanel: async (id) => {
   try {
-    const confirmar = confirm("¿Seguro que querés eliminar esta mesa?");
-
-    if (!confirmar) return;
-
     set({ isLoading: true, error: null });
 
     await eliminarMesa(id);

@@ -57,6 +57,15 @@ export const abrirPedido = async (req, res) => {
       }
     });
 
+    await prisma.mesa.update({
+      where: {
+        id: Number(mesaId)
+      },
+      data: {
+        disponible: false
+      }
+    });
+
     res.status(201).json({
       mensaje: "Pedido abierto correctamente",
       pedido: nuevoPedido
@@ -161,87 +170,119 @@ export const agregarProductoAlPedido = async (req, res) => {
       });
     }
 
-    if (Number(cantidad) <= 0) {
+    const cantidadSolicitada = Number(cantidad);
+
+    if (cantidadSolicitada <= 0) {
       return res.status(400).json({
         mensaje: "La cantidad debe ser mayor a 0"
       });
     }
 
-    const pedido = await prisma.pedido.findUnique({
-      where: {
-        id: Number(id)
+    const resultado = await prisma.$transaction(async (tx) => {
+      const pedido = await tx.pedido.findUnique({
+        where: {
+          id: Number(id)
+        }
+      });
+
+      if (!pedido) {
+        throw new Error("El pedido no existe");
       }
-    });
 
-    if (!pedido) {
-      return res.status(404).json({
-        mensaje: "El pedido no existe"
-      });
-    }
-
-    if (pedido.estado !== "ABIERTO") {
-      return res.status(400).json({
-        mensaje: "Solo se pueden agregar productos a pedidos abiertos"
-      });
-    }
-
-    const producto = await prisma.producto.findUnique({
-      where: {
-        id: Number(productoId)
+      if (pedido.estado !== "ABIERTO") {
+        throw new Error("Solo se pueden agregar productos a pedidos abiertos");
       }
-    });
 
-    if (!producto) {
-      return res.status(404).json({
-        mensaje: "El producto no existe"
+      const producto = await tx.producto.findUnique({
+        where: {
+          id: Number(productoId)
+        }
       });
-    }
 
-    if (!producto.disponible) {
-      return res.status(400).json({
-        mensaje: "El producto no está disponible"
-      });
-    }
-
-    const precioUnitario = producto.precio;
-    const subtotal = precioUnitario * Number(cantidad);
-
-    const detalle = await prisma.detallePedido.create({
-      data: {
-        pedidoId: Number(id),
-        productoId: Number(productoId),
-        cantidad: Number(cantidad),
-        precioUnitario,
-        subtotal
-      },
-      include: {
-        producto: true
+      if (!producto) {
+        throw new Error("El producto no existe");
       }
-    });
 
-    const nuevoTotal = pedido.total + subtotal;
+      if (!producto.disponible) {
+        throw new Error("El producto no está disponible");
+      }
 
-    const pedidoActualizado = await prisma.pedido.update({
-      where: {
-        id: Number(id)
-      },
-      data: {
-        total: nuevoTotal
-      },
-      include: {
-        mesa: true,
-        detalles: {
-          include: {
-            producto: true
+      const stockActual = Number(producto.stock ?? 0);
+
+      if (stockActual < cantidadSolicitada) {
+        throw new Error(
+          `Stock insuficiente para ${producto.nombre}. Stock actual: ${stockActual}`
+        );
+      }
+
+      const precioUnitario = producto.precio;
+      const subtotal = precioUnitario * cantidadSolicitada;
+
+      const detalle = await tx.detallePedido.create({
+        data: {
+          pedidoId: Number(id),
+          productoId: Number(productoId),
+          cantidad: cantidadSolicitada,
+          precioUnitario,
+          subtotal
+        },
+        include: {
+          producto: true
+        }
+      });
+
+      const nuevoStock = stockActual - cantidadSolicitada;
+
+      await tx.producto.update({
+        where: {
+          id: Number(productoId)
+        },
+        data: {
+          stock: nuevoStock,
+          disponible: nuevoStock > 0
+        }
+      });
+
+      const nuevoTotal = pedido.total + subtotal;
+
+      const pedidoActualizado = await tx.pedido.update({
+        where: {
+          id: Number(id)
+        },
+        data: {
+          total: nuevoTotal
+        },
+        include: {
+          mesa: true,
+          detalles: {
+            include: {
+              producto: true
+            }
           }
         }
-      }
+      });
+
+      await tx.mesa.update({
+        where: {
+          id: pedido.mesaId
+        },
+        data: {
+          disponible: false
+        }
+      });
+
+      return {
+        detalle,
+        pedido: pedidoActualizado,
+        stockRestante: nuevoStock
+      };
     });
 
     res.status(201).json({
-      mensaje: "Producto agregado al pedido correctamente",
-      detalle,
-      pedido: pedidoActualizado
+      mensaje: "Producto agregado al pedido y stock actualizado correctamente",
+      detalle: resultado.detalle,
+      pedido: resultado.pedido,
+      stockRestante: resultado.stockRestante
     });
 
   } catch (error) {
@@ -256,53 +297,60 @@ export const cerrarPedido = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const pedido = await prisma.pedido.findUnique({
-      where: {
-        id: Number(id)
-      },
-      include: {
-        detalles: true
+    const resultado = await prisma.$transaction(async (tx) => {
+      const pedido = await tx.pedido.findUnique({
+        where: {
+          id: Number(id)
+        },
+        include: {
+          detalles: true
+        }
+      });
+
+      if (!pedido) {
+        throw new Error("Pedido no encontrado");
       }
-    });
 
-    if (!pedido) {
-      return res.status(404).json({
-        mensaje: "Pedido no encontrado"
-      });
-    }
+      if (pedido.estado !== "ABIERTO") {
+        throw new Error("Solo se pueden cerrar pedidos abiertos");
+      }
 
-    if (pedido.estado !== "ABIERTO") {
-      return res.status(400).json({
-        mensaje: "Solo se pueden cerrar pedidos abiertos"
-      });
-    }
+      if (pedido.detalles.length === 0) {
+        throw new Error("No se puede cerrar un pedido sin productos");
+      }
 
-    if (pedido.detalles.length === 0) {
-      return res.status(400).json({
-        mensaje: "No se puede cerrar un pedido sin productos"
-      });
-    }
-
-    const pedidoCerrado = await prisma.pedido.update({
-      where: {
-        id: Number(id)
-      },
-      data: {
-        estado: "PAGADO"
-      },
-      include: {
-        mesa: true,
-        detalles: {
-          include: {
-            producto: true
+      const pedidoCerrado = await tx.pedido.update({
+        where: {
+          id: Number(id)
+        },
+        data: {
+          estado: "PAGADO"
+        },
+        include: {
+          mesa: true,
+          detalles: {
+            include: {
+              producto: true
+            }
           }
         }
-      }
+      });
+
+      await tx.mesa.update({
+        where: {
+          id: pedido.mesaId
+        },
+        data: {
+          disponible: true
+        }
+      });
+
+      return pedidoCerrado;
     });
 
     res.json({
       mensaje: "Pedido cerrado y pagado correctamente",
-      pedido: pedidoCerrado
+      pedido: resultado
     });
 
   } catch (error) {
@@ -317,36 +365,70 @@ export const cancelarPedido = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const pedido = await prisma.pedido.findUnique({
-      where: {
-        id: Number(id)
-      }
-    });
-
-    if (!pedido) {
-      return res.status(404).json({
-        mensaje: "Pedido no encontrado"
+    const resultado = await prisma.$transaction(async (tx) => {
+      const pedido = await tx.pedido.findUnique({
+        where: {
+          id: Number(id)
+        },
+        include: {
+          detalles: true
+        }
       });
-    }
 
-    if (pedido.estado !== "ABIERTO") {
-      return res.status(400).json({
-        mensaje: "Solo se pueden cancelar pedidos abiertos"
-      });
-    }
-
-    const pedidoCancelado = await prisma.pedido.update({
-      where: {
-        id: Number(id)
-      },
-      data: {
-        estado: "CANCELADO"
+      if (!pedido) {
+        throw new Error("Pedido no encontrado");
       }
+
+      if (pedido.estado !== "ABIERTO") {
+        throw new Error("Solo se pueden cancelar pedidos abiertos");
+      }
+
+      for (const detalle of pedido.detalles) {
+        await tx.producto.update({
+          where: {
+            id: detalle.productoId
+          },
+          data: {
+            stock: {
+              increment: detalle.cantidad
+            },
+            disponible: true
+          }
+        });
+      }
+
+      const pedidoCancelado = await tx.pedido.update({
+        where: {
+          id: Number(id)
+        },
+        data: {
+          estado: "CANCELADO"
+        },
+        include: {
+          mesa: true,
+          detalles: {
+            include: {
+              producto: true
+            }
+          }
+        }
+      });
+
+      await tx.mesa.update({
+        where: {
+          id: pedido.mesaId
+        },
+        data: {
+          disponible: true
+        }
+      });
+
+      return pedidoCancelado;
     });
 
     res.json({
-      mensaje: "Pedido cancelado correctamente",
-      pedido: pedidoCancelado
+      mensaje: "Pedido cancelado correctamente y stock restaurado",
+      pedido: resultado
     });
 
   } catch (error) {

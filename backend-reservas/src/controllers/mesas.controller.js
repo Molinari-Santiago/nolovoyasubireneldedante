@@ -53,9 +53,40 @@ export const eliminarMesa = async (req, res) => {
   try {
     const { id } = req.params;
 
+    const mesaId = Number(id);
+
+    if (isNaN(mesaId)) {
+      return res.status(400).json({
+        mensaje: "El id de la mesa no es válido",
+      });
+    }
+
+    const mesa = await prisma.mesa.findUnique({
+      where: {
+        id: mesaId,
+      },
+      include: {
+        pedidos: true,
+        reservas: true,
+      },
+    });
+
+    if (!mesa) {
+      return res.status(404).json({
+        mensaje: "La mesa no existe",
+      });
+    }
+
+    if (mesa.pedidos.length > 0 || mesa.reservas.length > 0) {
+      return res.status(400).json({
+        mensaje:
+          "No se puede eliminar la mesa porque tiene pedidos o reservas asociadas",
+      });
+    }
+
     await prisma.mesa.delete({
       where: {
-        id: Number(id),
+        id: mesaId,
       },
     });
 
@@ -67,6 +98,7 @@ export const eliminarMesa = async (req, res) => {
 
     res.status(500).json({
       mensaje: "Error al eliminar la mesa",
+      error: error.message,
     });
   }
 };

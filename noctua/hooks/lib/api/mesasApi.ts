@@ -8,6 +8,11 @@ interface MesaBackend {
   ubicacion?: string | null;
   disponible?: boolean;
   estado?: string;
+
+  estadoActual?: string;
+  estadoPedido?: string | null;
+  pedidoActual?: unknown;
+  reservaActual?: unknown;
 }
 
 type RespuestaMesas =
@@ -19,8 +24,16 @@ type RespuestaMesas =
     };
 
 function mapEstadoMesa(mesa: MesaBackend): EstadoMesa {
+  if (mesa.estadoActual === "OCUPADA") return "ocupada";
+  if (mesa.estadoActual === "RESERVADA") return "esperando_pedido";
+  if (mesa.estadoActual === "FUERA_DE_SERVICIO") return "problema";
+
+  if (mesa.estadoPedido === "PENDIENTE") return "esperando_pedido";
+  if (mesa.estadoPedido === "PREPARANDO") return "ocupada";
+  if (mesa.estadoPedido === "LISTO") return "pedido_listo";
+
   if (mesa.disponible === true) return "libre";
-  if (mesa.disponible === false) return "ocupada";
+  if (mesa.disponible === false) return "problema";
 
   if (mesa.estado === "libre") return "libre";
   if (mesa.estado === "ocupada") return "ocupada";
@@ -45,7 +58,7 @@ function mapMesaBackendToFrontend(mesa: MesaBackend): Mesa {
 }
 
 export async function obtenerMesas(): Promise<Mesa[]> {
-  const respuesta = await apiFetch<RespuestaMesas>("/mesas");
+  const respuesta = await apiFetch<RespuestaMesas>("/mesas/estado");
 
   let mesasBackend: MesaBackend[] = [];
 
