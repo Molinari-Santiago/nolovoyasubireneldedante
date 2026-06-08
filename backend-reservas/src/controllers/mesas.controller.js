@@ -1,50 +1,62 @@
-import prisma from "../config/prisma.js";
+import { supabaseAdmin } from "../config/supabaseAdmin.js";
+
+function mapMesa(mesa) {
+  return {
+    id: mesa.id,
+    numero: mesa.numero,
+    capacidad: mesa.capacidad,
+    zona: mesa.zona,
+    ubicacion: mesa.zona || mesa.ubicacion,
+    disponible: mesa.disponible,
+    estado: mesa.estado,
+    createdAt: mesa.created_at,
+  };
+}
 
 export const crearMesa = async (req, res) => {
   try {
-    const { numero, capacidad, ubicacion } = req.body;
+    const { numero, capacidad, ubicacion, zona } = req.body;
 
     if (!numero || !capacidad) {
       return res.status(400).json({
-        mensaje: "El número y la capacidad de la mesa son obligatorios"
+        mensaje: "El numero y la capacidad de la mesa son obligatorios",
       });
     }
 
-    if (capacidad <= 0) {
+    const { data: existente } = await supabaseAdmin
+      .from("mesas")
+      .select("id")
+      .eq("numero", Number(numero))
+      .maybeSingle();
+
+    if (existente) {
       return res.status(400).json({
-        mensaje: "La capacidad debe ser mayor a 0"
+        mensaje: "Ya existe una mesa con ese numero",
       });
     }
 
-    const mesaExistente = await prisma.mesa.findUnique({
-      where: {
-        numero: Number(numero)
-      }
-    });
-
-    if (mesaExistente) {
-      return res.status(400).json({
-        mensaje: "Ya existe una mesa con ese número"
-      });
-    }
-
-    const nuevaMesa = await prisma.mesa.create({
-      data: {
+    const { data, error } = await supabaseAdmin
+      .from("mesas")
+      .insert({
         numero: Number(numero),
         capacidad: Number(capacidad),
-        ubicacion
-      }
-    });
+        zona: zona || ubicacion || null,
+        disponible: true,
+        estado: "libre",
+      })
+      .select()
+      .single();
 
-    res.status(201).json({
+    if (error) throw new Error(error.message);
+
+    return res.status(201).json({
       mensaje: "Mesa creada correctamente",
-      mesa: nuevaMesa
+      mesa: mapMesa(data),
     });
-
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       mensaje: "Error al crear la mesa",
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -52,51 +64,13 @@ export const crearMesa = async (req, res) => {
 export const eliminarMesa = async (req, res) => {
   try {
     const { id } = req.params;
+    const { error } = await supabaseAdmin.from("mesas").delete().eq("id", id);
 
-    const mesaId = Number(id);
+    if (error) throw new Error(error.message);
 
-    if (isNaN(mesaId)) {
-      return res.status(400).json({
-        mensaje: "El id de la mesa no es válido",
-      });
-    }
-
-    const mesa = await prisma.mesa.findUnique({
-      where: {
-        id: mesaId,
-      },
-      include: {
-        pedidos: true,
-        reservas: true,
-      },
-    });
-
-    if (!mesa) {
-      return res.status(404).json({
-        mensaje: "La mesa no existe",
-      });
-    }
-
-    if (mesa.pedidos.length > 0 || mesa.reservas.length > 0) {
-      return res.status(400).json({
-        mensaje:
-          "No se puede eliminar la mesa porque tiene pedidos o reservas asociadas",
-      });
-    }
-
-    await prisma.mesa.delete({
-      where: {
-        id: mesaId,
-      },
-    });
-
-    res.json({
-      mensaje: "Mesa eliminada correctamente",
-    });
+    return res.json({ mensaje: "Mesa eliminada correctamente" });
   } catch (error) {
-    console.error("Error eliminando mesa:", error);
-
-    res.status(500).json({
+    return res.status(500).json({
       mensaje: "Error al eliminar la mesa",
       error: error.message,
     });
@@ -106,170 +80,89 @@ export const eliminarMesa = async (req, res) => {
 export const obtenerMesas = async (req, res) => {
   try {
     const { personas } = req.query;
-
-    const filtros = {};
+    let query = supabaseAdmin.from("mesas").select("*").order("numero");
 
     if (personas) {
-      filtros.capacidad = {
-        gte: Number(personas)
-      };
+      query = query.gte("capacidad", Number(personas));
     }
 
-    const mesas = await prisma.mesa.findMany({
-      where: filtros,
-      orderBy: {
-        numero: "asc"
-      }
-    });
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
 
-    res.json({
+    const mesas = (data || []).map(mapMesa);
+
+    return res.json({
       mensaje: "Mesas obtenidas correctamente",
       total: mesas.length,
-      mesas
+      mesas,
     });
-
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       mensaje: "Error al obtener las mesas",
-      error: error.message
+      error: error.message,
     });
   }
 };
 
 export const obtenerMesasDisponibles = async (req, res) => {
   try {
-    const { personas, fechaHoraInicio, duracionMinutos } = req.query;
+    const { personas } = req.query;
+    let query = supabaseAdmin
+      .from("mesas")
+      .select("*")
+      .eq("disponible", true)
+      .order("capacidad");
 
-    if (!personas || !fechaHoraInicio) {
-      return res.status(400).json({
-        mensaje: "Debes enviar personas y fechaHoraInicio"
-      });
+    if (personas) {
+      query = query.gte("capacidad", Number(personas));
     }
 
-    const inicio = new Date(fechaHoraInicio);
-    const duracion = Number(duracionMinutos) || 120;
-    const fin = new Date(inicio.getTime() + duracion * 60000);
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
 
-    if (isNaN(inicio.getTime())) {
-      return res.status(400).json({
-        mensaje: "La fecha enviada no es válida"
-      });
-    }
+    const mesas = (data || []).map(mapMesa);
 
-    const mesas = await prisma.mesa.findMany({
-      where: {
-        disponible: true,
-        capacidad: {
-          gte: Number(personas)
-        },
-        reservas: {
-          none: {
-            estado: {
-              in: ["PENDIENTE", "CONFIRMADA"]
-            },
-            AND: [
-              {
-                fechaHoraInicio: {
-                  lt: fin
-                }
-              },
-              {
-                fechaHoraFin: {
-                  gt: inicio
-                }
-              }
-            ]
-          }
-        }
-      },
-      orderBy: {
-        capacidad: "asc"
-      }
-    });
-
-    res.json({
+    return res.json({
       mensaje: "Mesas disponibles encontradas",
-      personas: Number(personas),
-      fechaHoraInicio: inicio,
-      fechaHoraFin: fin,
       total: mesas.length,
-      mesas
+      mesas,
     });
-
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       mensaje: "Error al buscar mesas disponibles",
-      error: error.message
+      error: error.message,
     });
   }
 };
 
 export const obtenerEstadoMesas = async (req, res) => {
   try {
-    const ahora = new Date();
+    const { data, error } = await supabaseAdmin
+      .from("mesas")
+      .select("*")
+      .order("numero");
 
-    const mesas = await prisma.mesa.findMany({
-      include: {
-        pedidos: {
-          where: {
-            estado: "ABIERTO"
-          }
-        },
-      reservas: {
-  where: {
-    estado: {
-      in: ["PENDIENTE", "CONFIRMADA"]
-    },
-    fechaHoraInicio: {
-      lte: ahora
-    },
-    fechaHoraFin: {
-      gt: ahora
-    }
-  },
-  orderBy: {
-    fechaHoraInicio: "asc"
-  }
-}
-      },
-      orderBy: {
-        numero: "asc"
-      }
-    });
+    if (error) throw new Error(error.message);
 
-    const mesasConEstado = mesas.map((mesa) => {
-      let estadoActual = "LIBRE";
+    const mesas = (data || []).map((mesa) => ({
+      ...mapMesa(mesa),
+      estadoActual:
+        mesa.estado === "ocupada" || mesa.disponible === false
+          ? "OCUPADA"
+          : mesa.estado === "reservada"
+            ? "RESERVADA"
+            : "LIBRE",
+    }));
 
-      if (!mesa.disponible) {
-        estadoActual = "FUERA_DE_SERVICIO";
-      } else if (mesa.pedidos.length > 0) {
-        estadoActual = "OCUPADA";
-      } else if (mesa.reservas.length > 0) {
-        estadoActual = "RESERVADA";
-      }
-
-      return {
-        id: mesa.id,
-        numero: mesa.numero,
-        capacidad: mesa.capacidad,
-        ubicacion: mesa.ubicacion,
-        disponible: mesa.disponible,
-        estadoActual,
-        pedidoAbierto: mesa.pedidos[0] || null,
-        proximaReserva: mesa.reservas[0] || null
-      };
-    });
-
-    res.json({
+    return res.json({
       mensaje: "Estado de mesas obtenido correctamente",
-      total: mesasConEstado.length,
-      mesas: mesasConEstado
+      total: mesas.length,
+      mesas,
     });
-
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       mensaje: "Error al obtener estado de mesas",
-      error: error.message
+      error: error.message,
     });
   }
 };

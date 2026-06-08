@@ -1,4 +1,32 @@
-import prisma from "../config/prisma.js";
+import { supabaseAdmin } from "../config/supabaseAdmin.js";
+
+function mapMesa(mesa) {
+  if (!mesa) return null;
+  return {
+    id: mesa.id,
+    numero: mesa.numero,
+    zona: mesa.zona,
+    capacidad: mesa.capacidad,
+    disponible: mesa.disponible,
+    estado: mesa.estado,
+  };
+}
+
+function mapReserva(reserva) {
+  return {
+    id: reserva.id,
+    nombreCliente: reserva.nombre_cliente,
+    telefono: reserva.telefono,
+    email: reserva.email,
+    cantidadPersonas: reserva.cantidad_personas,
+    fechaHoraInicio: reserva.fecha_hora_inicio,
+    fechaHoraFin: reserva.fecha_hora_fin,
+    estado: reserva.estado,
+    mesaId: reserva.mesa_id,
+    mesa: mapMesa(reserva.mesas),
+    createdAt: reserva.created_at,
+  };
+}
 
 export const crearReserva = async (req, res) => {
   try {
@@ -9,125 +37,105 @@ export const crearReserva = async (req, res) => {
       cantidadPersonas,
       fechaHoraInicio,
       duracionMinutos,
-      mesaId
+      mesaId,
     } = req.body;
 
     if (!nombreCliente || !telefono || !cantidadPersonas || !fechaHoraInicio || !mesaId) {
       return res.status(400).json({
-        mensaje: "Faltan datos obligatorios para crear la reserva"
+        mensaje: "Faltan datos obligatorios para crear la reserva",
       });
     }
 
     const inicio = new Date(fechaHoraInicio);
-    const duracion = Number(duracionMinutos) || 120;
-    const fin = new Date(inicio.getTime() + duracion * 60000);
+    const fin = new Date(
+      inicio.getTime() + (Number(duracionMinutos) || 120) * 60000
+    );
 
-    if (isNaN(inicio.getTime())) {
+    if (Number.isNaN(inicio.getTime())) {
+      return res.status(400).json({ mensaje: "La fecha de inicio no es valida" });
+    }
+
+    const { data: mesa, error: mesaError } = await supabaseAdmin
+      .from("mesas")
+      .select("*")
+      .eq("id", mesaId)
+      .single();
+
+    if (mesaError || !mesa) {
+      return res.status(404).json({ mensaje: "La mesa seleccionada no existe" });
+    }
+
+    if (Number(mesa.capacidad || 0) < Number(cantidadPersonas)) {
       return res.status(400).json({
-        mensaje: "La fecha de inicio no es válida"
+        mensaje: "La mesa seleccionada no tiene capacidad suficiente",
       });
     }
 
-    const mesa = await prisma.mesa.findUnique({
-      where: {
-        id: Number(mesaId)
-      }
-    });
+    const { data: superpuestas, error: superpuestasError } = await supabaseAdmin
+      .from("reservas")
+      .select("id")
+      .eq("mesa_id", mesaId)
+      .in("estado", ["pendiente", "confirmada", "PENDIENTE", "CONFIRMADA"])
+      .lt("fecha_hora_inicio", fin.toISOString())
+      .gt("fecha_hora_fin", inicio.toISOString());
 
-    if (!mesa) {
-      return res.status(404).json({
-        mensaje: "La mesa seleccionada no existe"
-      });
-    }
+    if (superpuestasError) throw new Error(superpuestasError.message);
 
-    if (!mesa.disponible) {
+    if ((superpuestas || []).length > 0) {
       return res.status(400).json({
-        mensaje: "La mesa seleccionada no está disponible"
+        mensaje: "La mesa ya tiene una reserva en ese horario",
       });
     }
 
-    if (mesa.capacidad < Number(cantidadPersonas)) {
-      return res.status(400).json({
-        mensaje: "La mesa seleccionada no tiene capacidad suficiente"
-      });
-    }
-
-    const reservaSuperpuesta = await prisma.reserva.findFirst({
-      where: {
-        mesaId: Number(mesaId),
-        estado: {
-          in: ["PENDIENTE", "CONFIRMADA"]
-        },
-        AND: [
-          {
-            fechaHoraInicio: {
-              lt: fin
-            }
-          },
-          {
-            fechaHoraFin: {
-              gt: inicio
-            }
-          }
-        ]
-      }
-    });
-
-    if (reservaSuperpuesta) {
-      return res.status(400).json({
-        mensaje: "La mesa ya tiene una reserva en ese horario"
-      });
-    }
-
-    const nuevaReserva = await prisma.reserva.create({
-      data: {
-        nombreCliente,
+    const { data, error } = await supabaseAdmin
+      .from("reservas")
+      .insert({
+        nombre_cliente: nombreCliente,
         telefono,
-        email,
-        cantidadPersonas: Number(cantidadPersonas),
-        fechaHoraInicio: inicio,
-        fechaHoraFin: fin,
-        mesaId: Number(mesaId)
-      },
-      include: {
-        mesa: true
-      }
-    });
+        email: email || null,
+        cantidad_personas: Number(cantidadPersonas),
+        fecha_hora_inicio: inicio.toISOString(),
+        fecha_hora_fin: fin.toISOString(),
+        mesa_id: mesaId,
+        estado: "pendiente",
+      })
+      .select("*, mesas(*)")
+      .single();
 
-    res.status(201).json({
+    if (error) throw new Error(error.message);
+
+    return res.status(201).json({
       mensaje: "Reserva creada correctamente",
-      reserva: nuevaReserva
+      reserva: mapReserva(data),
     });
-
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       mensaje: "Error al crear la reserva",
-      error: error.message
+      error: error.message,
     });
   }
 };
 
 export const obtenerReservas = async (req, res) => {
   try {
-    const reservas = await prisma.reserva.findMany({
-      include: {
-        mesa: true
-      },
-      orderBy: {
-        fechaHoraInicio: "asc"
-      }
-    });
+    const { data, error } = await supabaseAdmin
+      .from("reservas")
+      .select("*, mesas(*)")
+      .order("fecha_hora_inicio", { ascending: true });
 
-    res.json({
+    if (error) throw new Error(error.message);
+
+    const reservas = (data || []).map(mapReserva);
+
+    return res.json({
       mensaje: "Reservas obtenidas correctamente",
       total: reservas.length,
-      reservas
+      reservas,
     });
-
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       mensaje: "Error al obtener las reservas",
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -135,31 +143,24 @@ export const obtenerReservas = async (req, res) => {
 export const obtenerReservaPorId = async (req, res) => {
   try {
     const { id } = req.params;
+    const { data, error } = await supabaseAdmin
+      .from("reservas")
+      .select("*, mesas(*)")
+      .eq("id", id)
+      .single();
 
-    const reserva = await prisma.reserva.findUnique({
-      where: {
-        id: Number(id)
-      },
-      include: {
-        mesa: true
-      }
-    });
-
-    if (!reserva) {
-      return res.status(404).json({
-        mensaje: "Reserva no encontrada"
-      });
+    if (error || !data) {
+      return res.status(404).json({ mensaje: "Reserva no encontrada" });
     }
 
-    res.json({
+    return res.json({
       mensaje: "Reserva encontrada",
-      reserva
+      reserva: mapReserva(data),
     });
-
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       mensaje: "Error al obtener la reserva",
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -167,40 +168,25 @@ export const obtenerReservaPorId = async (req, res) => {
 export const cancelarReserva = async (req, res) => {
   try {
     const { id } = req.params;
+    const { data, error } = await supabaseAdmin
+      .from("reservas")
+      .update({ estado: "cancelada" })
+      .eq("id", id)
+      .select("*, mesas(*)")
+      .single();
 
-    const reserva = await prisma.reserva.findUnique({
-      where: {
-        id: Number(id)
-      }
-    });
-
-    if (!reserva) {
-      return res.status(404).json({
-        mensaje: "Reserva no encontrada"
-      });
+    if (error || !data) {
+      return res.status(404).json({ mensaje: "Reserva no encontrada" });
     }
 
-    const reservaCancelada = await prisma.reserva.update({
-      where: {
-        id: Number(id)
-      },
-      data: {
-        estado: "CANCELADA"
-      },
-      include: {
-        mesa: true
-      }
-    });
-
-    res.json({
+    return res.json({
       mensaje: "Reserva cancelada correctamente",
-      reserva: reservaCancelada
+      reserva: mapReserva(data),
     });
-
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       mensaje: "Error al cancelar la reserva",
-      error: error.message
+      error: error.message,
     });
   }
 };

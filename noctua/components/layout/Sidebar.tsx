@@ -13,19 +13,30 @@ import {
   Menu,
   X,
   History,
+  Receipt,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { cn } from '@/hooks/lib/utils';
+import {
+  LABEL_POR_SECCION,
+  RUTA_POR_SECCION,
+  obtenerSeccionesPorRol,
+  type SeccionSistema,
+} from '@/config/roles';
 
 const NAV_ITEMS = [
-  { href: '/dashboard/mesas', icon: UtensilsCrossed, label: 'Mesas' },
-  { href: '/dashboard/pedido', icon: ClipboardList, label: 'Pedidos' },
-  { href: '/dashboard/cocina', icon: ChefHat, label: 'Cocina' },
-  { href: '/dashboard/historial', icon: History, label: 'Historial' },
-  { href: '/dashboard/stock', icon: Package, label: 'Stock' },
-  { href: '/dashboard/reservas', icon: CalendarDays, label: 'Reservas' },
-] as const;
+  { seccion: 'mesas', icon: UtensilsCrossed },
+  { seccion: 'pedidos', icon: ClipboardList },
+  { seccion: 'cocina', icon: ChefHat },
+  { seccion: 'cajero', icon: Receipt },
+  { seccion: 'historial', icon: History },
+  { seccion: 'stock', icon: Package },
+  { seccion: 'reservas', icon: CalendarDays },
+] satisfies {
+  seccion: SeccionSistema;
+  icon: typeof UtensilsCrossed;
+}[];
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -33,6 +44,7 @@ export function Sidebar() {
   const logout = useAuthStore((s) => s.logout);
   const usuario = useAuthStore((s) => s.usuario);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const seccionesPermitidas = obtenerSeccionesPorRol(usuario?.rol);
 
   const handleLogout = () => {
     logout();
@@ -88,8 +100,13 @@ export function Sidebar() {
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-6 space-y-1" role="navigation" aria-label="Navegación principal">
-          {NAV_ITEMS.map(({ href, icon: Icon, label }) => {
+          {NAV_ITEMS.filter(({ seccion }) =>
+            seccionesPermitidas.includes(seccion)
+          ).map(({ seccion, icon: Icon }) => {
+            const href = RUTA_POR_SECCION[seccion];
+            const label = LABEL_POR_SECCION[seccion];
             const isActive = pathname.startsWith(href);
+
             return (
               <Link
                 key={href}

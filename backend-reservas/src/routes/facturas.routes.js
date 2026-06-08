@@ -1,14 +1,24 @@
 import { Router } from "express";
 
 import {
-  generarFacturaDesdePedido,
+  verificarARCAController,
+  obtenerPedidosListosParaCobrar,
+  cobrarPedido,
+  confirmarPagoEfectivo,
   obtenerFacturas,
-  obtenerFacturaPorId
+  obtenerFacturaPorId,
 } from "../controllers/facturas.controller.js";
 
 const router = Router();
 
-router.post("/pedido/:pedidoId", generarFacturaDesdePedido);
+router.get("/arca/verificar", verificarARCAController);
+router.get("/pedidos/listos", obtenerPedidosListosParaCobrar);
+
+router.post("/pedido/:pedidoId/cobrar", cobrarPedido);
+router.post("/:pedidoId/cobrar", cobrarPedido);
+
+router.post("/pago/:pagoId/confirmar-efectivo", confirmarPagoEfectivo);
+
 router.get("/", obtenerFacturas);
 router.get("/:id", obtenerFacturaPorId);
 

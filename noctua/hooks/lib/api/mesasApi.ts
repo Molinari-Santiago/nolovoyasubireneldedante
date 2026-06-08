@@ -30,12 +30,14 @@ function mapEstadoMesa(mesa: MesaBackend): EstadoMesa {
   if (mesa.estadoPedido === "PENDIENTE") return "esperando_pedido";
   if (mesa.estadoPedido === "PREPARANDO") return "ocupada";
   if (mesa.estadoPedido === "LISTO") return "pedido_listo";
+  if (mesa.estadoPedido === "lista_para_cobrar") return "esperando_pago";
 
   if (mesa.disponible === true) return "libre";
   if (mesa.disponible === false) return "problema";
 
   if (mesa.estado === "libre") return "libre";
   if (mesa.estado === "ocupada") return "ocupada";
+  if (mesa.estado === "reservada") return "esperando_pedido";
   if (mesa.estado === "esperando_pedido") return "esperando_pedido";
   if (mesa.estado === "pedido_listo") return "pedido_listo";
   if (mesa.estado === "esperando_pago") return "esperando_pago";
@@ -110,5 +112,131 @@ export async function crearMesa(data: {
       },
       mesasUnidas: [],
     },
+  };
+}
+
+export async function actualizarMesa(
+  id: string,
+  data: Partial<{
+    numero: number;
+    capacidad: number;
+    ubicacion: string;
+    zona: string;
+    posicion: { x: number; y: number };
+    personas: number | null;
+  }>
+) {
+  const queryId = Number.isNaN(Number(id)) ? id : Number(id);
+  const cambios: Record<string, unknown> = {};
+
+  if (data.numero !== undefined) cambios.numero = data.numero;
+  if (data.capacidad !== undefined) cambios.capacidad = data.capacidad;
+  if (data.ubicacion !== undefined || data.zona !== undefined) {
+    cambios.zona = data.zona || data.ubicacion;
+  }
+  if (data.posicion !== undefined) {
+    cambios.pos_x = data.posicion.x;
+    cambios.pos_y = data.posicion.y;
+  }
+  if (data.personas !== undefined) cambios.personas = data.personas;
+
+  const { data: mesaActualizada, error } = await supabase
+    .from("mesas")
+    .update(cambios)
+    .eq("id", queryId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error al actualizar mesa en Supabase:", error);
+    throw new Error(error.message);
+  }
+
+  return {
+    success: true,
+    mesa: {
+      id: String(mesaActualizada.id),
+      numero: mesaActualizada.numero,
+      zona: mesaActualizada.zona || mesaActualizada.ubicacion || "SALÓN PRINCIPAL",
+      estado: mapEstadoMesa(mesaActualizada),
+      capacidad: mesaActualizada.capacidad || 4,
+      posicion: {
+        x: mesaActualizada.pos_x || 0,
+        y: mesaActualizada.pos_y || 0,
+      },
+      mesasUnidas: [],
+      personas: mesaActualizada.personas || undefined,
+      pedidoId: mesaActualizada.pedido_id
+        ? String(mesaActualizada.pedido_id)
+        : undefined,
+      timerInicio: mesaActualizada.creada_en
+        ? new Date(mesaActualizada.creada_en)
+        : undefined,
+    } satisfies Mesa,
+  };
+}
+
+export async function eliminarMesa(id: string) {
+  const queryId = Number.isNaN(Number(id)) ? id : Number(id);
+
+  const { error } = await supabase
+    .from("mesas")
+    .delete()
+    .eq("id", queryId);
+
+  if (error) {
+    console.error("Error al eliminar mesa en Supabase:", error);
+    throw new Error(error.message);
+  }
+
+  return { success: true };
+}
+
+export async function actualizarEstadoMesa(id: string, estado: EstadoMesa) {
+  const queryId = Number.isNaN(Number(id)) ? id : Number(id);
+  const disponible = estado === "libre";
+  const cambios: Record<string, unknown> = {
+    estado,
+    disponible,
+  };
+
+  if (estado === "libre") {
+    cambios.personas = null;
+    cambios.pedido_id = null;
+  }
+
+  const { data: mesaActualizada, error } = await supabase
+    .from("mesas")
+    .update(cambios)
+    .eq("id", queryId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error al actualizar estado de mesa en Supabase:", error);
+    throw new Error(error.message);
+  }
+
+  return {
+    success: true,
+    mesa: {
+      id: String(mesaActualizada.id),
+      numero: mesaActualizada.numero,
+      zona: mesaActualizada.zona || mesaActualizada.ubicacion || "SALÓN PRINCIPAL",
+      estado: mapEstadoMesa(mesaActualizada),
+      capacidad: mesaActualizada.capacidad || 4,
+      posicion: {
+        x: mesaActualizada.pos_x || 0,
+        y: mesaActualizada.pos_y || 0,
+      },
+      mesasUnidas: [],
+      personas: mesaActualizada.personas || undefined,
+      pedidoId: mesaActualizada.pedido_id
+        ? String(mesaActualizada.pedido_id)
+        : undefined,
+      timerInicio: mesaActualizada.creada_en
+        ? new Date(mesaActualizada.creada_en)
+        : undefined,
+    } satisfies Mesa,
   };
 }

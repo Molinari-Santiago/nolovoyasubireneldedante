@@ -2,7 +2,14 @@
 
 import { create } from "zustand";
 import type { Mesa, EstadoMesa } from "@/types/mesa";
-import { obtenerMesas, crearMesa, eliminarMesa } from "@/hooks/lib/api/mesasApi";
+import {
+  obtenerMesas,
+  crearMesa,
+  actualizarMesa,
+  eliminarMesa,
+  actualizarEstadoMesa,
+} from "@/hooks/lib/api/mesasApi";
+
 interface MesasState {
   mesas: Mesa[];
   mesaSeleccionada: string | null;
@@ -17,7 +24,7 @@ interface MesasState {
     ubicacion: string;
   }) => Promise<void>;
   eliminarMesaDesdePanel: (id: string) => Promise<void>;
-  
+
   seleccionarMesa: (id: string | null) => void;
   toggleSeleccionMesa: (id: string) => void;
   limpiarSeleccion: () => void;
@@ -27,8 +34,9 @@ interface MesasState {
 
   abrirMesa: (id: string, personas: number) => void;
   cerrarMesa: (id: string) => void;
+  cambiarEstadoMesa: (id: string, estado: EstadoMesa) => Promise<void>;
 
-  moverMesa: (id: string, posicion: { x: number; y: number }) => void;
+  moverMesa: (id: string, posicion: { x: number; y: number }) => Promise<void>;
 
   unirMesas: (ids: string[]) => void;
   dividirMesas: (id: string) => void;
@@ -90,32 +98,34 @@ export const useMesasStore = create<MesasState>((set) => ({
       });
     }
   },
+
   eliminarMesaDesdePanel: async (id) => {
-  try {
-    set({ isLoading: true, error: null });
+    try {
+      set({ isLoading: true, error: null });
 
-    await eliminarMesa(id);
+      await eliminarMesa(id);
 
-    const mesas = await obtenerMesas();
+      const mesas = await obtenerMesas();
 
-    set({
-      mesas,
-      isLoading: false,
-      mesaSeleccionada: null,
-      mesasSeleccionadas: [],
-    });
-  } catch (error) {
-    console.error("Error eliminando mesa:", error);
+      set({
+        mesas,
+        isLoading: false,
+        mesaSeleccionada: null,
+        mesasSeleccionadas: [],
+      });
+    } catch (error) {
+      console.error("Error eliminando mesa:", error);
 
-    set({
-      isLoading: false,
-      error:
-        error instanceof Error
-          ? error.message
-          : "No se pudo eliminar la mesa",
-    });
-  }
-},
+      set({
+        isLoading: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "No se pudo eliminar la mesa",
+      });
+    }
+  },
+
   seleccionarMesa: (id) =>
     set({
       mesaSeleccionada: id,
@@ -179,12 +189,51 @@ export const useMesasStore = create<MesasState>((set) => ({
       ),
     })),
 
-  moverMesa: (id, posicion) =>
+  cambiarEstadoMesa: async (id, estado) => {
+    try {
+      set({ isLoading: true, error: null });
+
+      await actualizarEstadoMesa(id, estado);
+
+      const mesas = await obtenerMesas();
+
+      set({
+        mesas,
+        isLoading: false,
+      });
+    } catch (error) {
+      console.error("Error cambiando estado de mesa:", error);
+
+      set({
+        isLoading: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "No se pudo cambiar el estado de la mesa",
+      });
+    }
+  },
+
+  moverMesa: async (id, posicion) => {
     set((state) => ({
       mesas: state.mesas.map((m) =>
         m.id === id ? { ...m, posicion } : m
       ),
-    })),
+    }));
+
+    try {
+      await actualizarMesa(id, { posicion });
+    } catch (error) {
+      console.error("Error moviendo mesa:", error);
+
+      set({
+        error:
+          error instanceof Error
+            ? error.message
+            : "No se pudo guardar la posicion de la mesa",
+      });
+    }
+  },
 
   unirMesas: (ids) =>
     set((state) => ({
