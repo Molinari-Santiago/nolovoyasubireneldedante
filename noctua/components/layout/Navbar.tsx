@@ -8,6 +8,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/dashboard/mesas': 'Mesas',
   '/dashboard/pedido': 'Pedidos',
   '/dashboard/cocina': 'Cocina — KDS',
+  '/dashboard/historial': 'Historial de Pedidos',
   '/dashboard/stock': 'Stock',
   '/dashboard/reservas': 'Reservas',
 };

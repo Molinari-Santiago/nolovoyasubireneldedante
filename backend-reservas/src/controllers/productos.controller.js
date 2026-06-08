@@ -1,40 +1,54 @@
-import prisma from "../config/prisma.js";
+import { supabaseAdmin } from "../config/supabaseAdmin.js";
+
+function mapProducto(producto) {
+  return {
+    id: producto.id,
+    nombre: producto.nombre,
+    descripcion: producto.descripcion,
+    precio: Number(producto.precio || 0),
+    categoria: producto.categoria || producto.categoria_id,
+    categoriaId: producto.categoria_id,
+    imagenUrl: producto.imagen_url,
+    disponible: producto.disponible,
+    stock: Number(producto.stock_actual ?? producto.stock ?? 0),
+    createdAt: producto.created_at,
+  };
+}
 
 export const crearProducto = async (req, res) => {
   try {
-    const { nombre, descripcion, precio, categoria, imagenUrl } = req.body;
+    const { nombre, descripcion, precio, categoria, categoriaId, imagenUrl } =
+      req.body;
 
-    if (!nombre || !precio || !categoria) {
+    if (!nombre || !precio) {
       return res.status(400).json({
-        mensaje: "El nombre, el precio y la categoría son obligatorios"
+        mensaje: "El nombre y el precio son obligatorios",
       });
     }
 
-    if (Number(precio) <= 0) {
-      return res.status(400).json({
-        mensaje: "El precio debe ser mayor a 0"
-      });
-    }
-
-    const nuevoProducto = await prisma.producto.create({
-      data: {
+    const { data, error } = await supabaseAdmin
+      .from("productos")
+      .insert({
         nombre,
-        descripcion,
+        descripcion: descripcion || null,
         precio: Number(precio),
-        categoria,
-        imagenUrl
-      }
-    });
+        categoria_id: categoriaId || categoria || null,
+        imagen_url: imagenUrl || null,
+        disponible: true,
+      })
+      .select()
+      .single();
 
-    res.status(201).json({
+    if (error) throw new Error(error.message);
+
+    return res.status(201).json({
       mensaje: "Producto creado correctamente",
-      producto: nuevoProducto
+      producto: mapProducto(data),
     });
-
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       mensaje: "Error al crear el producto",
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -42,38 +56,29 @@ export const crearProducto = async (req, res) => {
 export const obtenerProductos = async (req, res) => {
   try {
     const { categoria, disponible } = req.query;
+    let query = supabaseAdmin
+      .from("productos")
+      .select("*")
+      .order("created_at", { ascending: false });
 
-    const filtros = {};
+    if (categoria) query = query.eq("categoria_id", categoria);
+    if (disponible === "true") query = query.eq("disponible", true);
+    if (disponible === "false") query = query.eq("disponible", false);
 
-    if (categoria) {
-      filtros.categoria = categoria;
-    }
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
 
-    if (disponible === "true") {
-      filtros.disponible = true;
-    }
+    const productos = (data || []).map(mapProducto);
 
-    if (disponible === "false") {
-      filtros.disponible = false;
-    }
-
-    const productos = await prisma.producto.findMany({
-      where: filtros,
-      orderBy: {
-        createdAt: "desc"
-      }
-    });
-
-    res.json({
+    return res.json({
       mensaje: "Productos obtenidos correctamente",
       total: productos.length,
-      productos
+      productos,
     });
-
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       mensaje: "Error al obtener los productos",
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -81,28 +86,24 @@ export const obtenerProductos = async (req, res) => {
 export const obtenerProductoPorId = async (req, res) => {
   try {
     const { id } = req.params;
+    const { data, error } = await supabaseAdmin
+      .from("productos")
+      .select("*")
+      .eq("id", id)
+      .single();
 
-    const producto = await prisma.producto.findUnique({
-      where: {
-        id: Number(id)
-      }
-    });
-
-    if (!producto) {
-      return res.status(404).json({
-        mensaje: "Producto no encontrado"
-      });
+    if (error || !data) {
+      return res.status(404).json({ mensaje: "Producto no encontrado" });
     }
 
-    res.json({
+    return res.json({
       mensaje: "Producto encontrado",
-      producto
+      producto: mapProducto(data),
     });
-
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       mensaje: "Error al obtener el producto",
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -110,43 +111,36 @@ export const obtenerProductoPorId = async (req, res) => {
 export const actualizarProducto = async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, descripcion, precio, categoria, imagenUrl, disponible } = req.body;
+    const { nombre, descripcion, precio, categoria, categoriaId, imagenUrl, disponible } =
+      req.body;
 
-    const productoExistente = await prisma.producto.findUnique({
-      where: {
-        id: Number(id)
-      }
-    });
-
-    if (!productoExistente) {
-      return res.status(404).json({
-        mensaje: "Producto no encontrado"
-      });
+    const cambios = {};
+    if (nombre !== undefined) cambios.nombre = nombre;
+    if (descripcion !== undefined) cambios.descripcion = descripcion;
+    if (precio !== undefined) cambios.precio = Number(precio);
+    if (categoriaId !== undefined || categoria !== undefined) {
+      cambios.categoria_id = categoriaId || categoria;
     }
+    if (imagenUrl !== undefined) cambios.imagen_url = imagenUrl;
+    if (disponible !== undefined) cambios.disponible = disponible;
 
-    const productoActualizado = await prisma.producto.update({
-      where: {
-        id: Number(id)
-      },
-      data: {
-        nombre,
-        descripcion,
-        precio: precio !== undefined ? Number(precio) : undefined,
-        categoria,
-        imagenUrl,
-        disponible
-      }
-    });
+    const { data, error } = await supabaseAdmin
+      .from("productos")
+      .update(cambios)
+      .eq("id", id)
+      .select()
+      .single();
 
-    res.json({
+    if (error) throw new Error(error.message);
+
+    return res.json({
       mensaje: "Producto actualizado correctamente",
-      producto: productoActualizado
+      producto: mapProducto(data),
     });
-
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       mensaje: "Error al actualizar el producto",
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -154,33 +148,15 @@ export const actualizarProducto = async (req, res) => {
 export const eliminarProducto = async (req, res) => {
   try {
     const { id } = req.params;
+    const { error } = await supabaseAdmin.from("productos").delete().eq("id", id);
 
-    const productoExistente = await prisma.producto.findUnique({
-      where: {
-        id: Number(id)
-      }
-    });
+    if (error) throw new Error(error.message);
 
-    if (!productoExistente) {
-      return res.status(404).json({
-        mensaje: "Producto no encontrado"
-      });
-    }
-
-    await prisma.producto.delete({
-      where: {
-        id: Number(id)
-      }
-    });
-
-    res.json({
-      mensaje: "Producto eliminado correctamente"
-    });
-
+    return res.json({ mensaje: "Producto eliminado correctamente" });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       mensaje: "Error al eliminar el producto",
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -188,37 +164,33 @@ export const eliminarProducto = async (req, res) => {
 export const cambiarDisponibilidadProducto = async (req, res) => {
   try {
     const { id } = req.params;
+    const { data: producto, error: getError } = await supabaseAdmin
+      .from("productos")
+      .select("*")
+      .eq("id", id)
+      .single();
 
-    const producto = await prisma.producto.findUnique({
-      where: {
-        id: Number(id)
-      }
-    });
-
-    if (!producto) {
-      return res.status(404).json({
-        mensaje: "Producto no encontrado"
-      });
+    if (getError || !producto) {
+      return res.status(404).json({ mensaje: "Producto no encontrado" });
     }
 
-    const productoActualizado = await prisma.producto.update({
-      where: {
-        id: Number(id)
-      },
-      data: {
-        disponible: !producto.disponible
-      }
-    });
+    const { data, error } = await supabaseAdmin
+      .from("productos")
+      .update({ disponible: !producto.disponible })
+      .eq("id", id)
+      .select()
+      .single();
 
-    res.json({
+    if (error) throw new Error(error.message);
+
+    return res.json({
       mensaje: "Disponibilidad del producto actualizada",
-      producto: productoActualizado
+      producto: mapProducto(data),
     });
-
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       mensaje: "Error al cambiar la disponibilidad",
-      error: error.message
+      error: error.message,
     });
   }
 };

@@ -37,11 +37,13 @@ export default function MesasPage() {
 
   const cargarMesas = useMesasStore((s) => s.cargarMesas);
   const crearMesaDesdePanel = useMesasStore((s) => s.crearMesaDesdePanel);
+  const eliminarMesaDesdePanel = useMesasStore((s) => s.eliminarMesaDesdePanel);
   const isLoading = useMesasStore((s) => s.isLoading);
   const error = useMesasStore((s) => s.error);
 
   const [modalMesa, setModalMesa] = useState<Mesa | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [mesaAEliminar, setMesaAEliminar] = useState<Mesa | null>(null);
 
   const [numeroMesa, setNumeroMesa] = useState("");
   const [capacidadMesa, setCapacidadMesa] = useState("");
@@ -78,6 +80,26 @@ export default function MesasPage() {
     setUbicacionMesa("SALÓN PRINCIPAL");
   };
 
+  const abrirAlertaEliminar = (id: string) => {
+  const mesa = mesas.find((m) => m.id === id);
+
+  if (!mesa) return;
+
+  setMesaAEliminar(mesa);
+};
+
+const confirmarEliminarMesa = async () => {
+  if (!mesaAEliminar) return;
+
+  await eliminarMesaDesdePanel(mesaAEliminar.id);
+
+  setMesaAEliminar(null);
+};
+
+const cancelarEliminarMesa = () => {
+  setMesaAEliminar(null);
+};
+
   const handleSingleClick = useCallback(
     (id: string) => {
       toggleSeleccionMesa(id);
@@ -111,7 +133,7 @@ export default function MesasPage() {
         className="bg-[#080808] border border-[#1a1a1a] rounded-xl p-5 space-y-4"
       >
         <div>
-          <h2 className="text-white font-bold tracking-widest uppercase">
+        <h2 className="text-white font-bold tracking-widest uppercase">
             Agregar mesa
           </h2>
           <p className="text-[#676B67] text-sm">
@@ -245,13 +267,14 @@ export default function MesasPage() {
 
               <div className="flex flex-wrap gap-3">
                 {mesasZona.map((mesa) => (
-                  <MesaCard
-                    key={mesa.id}
-                    mesa={mesa}
-                    isSelected={mesasSeleccionadas.includes(mesa.id)}
-                    onSingleClick={handleSingleClick}
-                    onDoubleClick={handleDoubleClick}
-                  />
+              <MesaCard
+              key={mesa.id}
+              mesa={mesa}
+              isSelected={mesasSeleccionadas.includes(mesa.id)}
+              onSingleClick={handleSingleClick}
+              onDoubleClick={handleDoubleClick}
+              onDelete={abrirAlertaEliminar}
+/>
                 ))}
               </div>
             </div>
@@ -286,13 +309,99 @@ export default function MesasPage() {
 
       {/* Mesa Modal */}
       <MesaModal
-        mesa={modalMesa}
-        isOpen={modalOpen}
-        onClose={() => {
-          setModalOpen(false);
-          setModalMesa(null);
-        }}
-      />
+      mesa={modalMesa}
+      isOpen={modalOpen}
+      onClose={() => {
+        setModalOpen(false);
+        setModalMesa(null);
+  }}
+/>
+<AnimatePresence>
+  {mesaAEliminar && (
+    <motion.div
+      className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center px-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.92, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.92, y: 20 }}
+        transition={{ type: "spring", stiffness: 260, damping: 22 }}
+        className="w-full max-w-md bg-[#080808] border border-[#1f1f1f] rounded-2xl shadow-2xl p-6"
+      >
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center">
+            <span className="text-red-400 text-2xl font-black">!</span>
+          </div>
+
+          <div className="flex-1">
+            <h2 className="text-white text-lg font-black tracking-widest uppercase">
+              Eliminar mesa
+            </h2>
+
+            <p className="text-[#BCB9B9] text-sm mt-2 leading-relaxed">
+              ¿Seguro que querés eliminar la mesa{" "}
+              <span className="text-white font-bold">
+                N° {mesaAEliminar.numero}
+              </span>
+              ?
+            </p>
+
+            <p className="text-[#676B67] text-xs mt-2 leading-relaxed">
+              Esta acción eliminará la mesa del sistema si no tiene pedidos o
+              reservas asociadas.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 bg-black border border-[#1a1a1a] rounded-xl p-4">
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-[#676B67] text-xs uppercase font-semibold">
+                Ubicación
+              </p>
+              <p className="text-white font-semibold">
+                {mesaAEliminar.zona}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-[#676B67] text-xs uppercase font-semibold">
+                Capacidad
+              </p>
+              <p className="text-white font-semibold">
+                {mesaAEliminar.capacidad} personas
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <Button
+            type="button"
+            variant="ghost"
+            className="flex-1"
+            onClick={cancelarEliminarMesa}
+          >
+            Cancelar
+          </Button>
+
+          <Button
+            type="button"
+            variant="danger"
+            className="flex-1"
+            onClick={confirmarEliminarMesa}
+            loading={isLoading}
+          >
+            Eliminar
+          </Button>
+        </div>
+      </motion.div>
+    </motion.div>
+  )}
+</AnimatePresence>
     </div>
   );
 }

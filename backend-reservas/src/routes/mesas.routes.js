@@ -1,16 +1,21 @@
-import { Router } from "express";
+import express from "express";
+
 import {
   crearMesa,
+  eliminarMesa,
   obtenerMesas,
   obtenerMesasDisponibles,
-  obtenerEstadoMesas
+  obtenerEstadoMesas,
 } from "../controllers/mesas.controller.js";
 
-const router = Router();
+const router = express.Router();
+
+router.get("/", obtenerMesas);
+router.get("/estado", obtenerEstadoMesas);
+router.get("/disponibles", obtenerMesasDisponibles);
 
 router.post("/", crearMesa);
-router.get("/", obtenerMesas);
-router.get("/disponibles", obtenerMesasDisponibles);
-router.get("/estado", obtenerEstadoMesas);
+
+router.delete("/:id", eliminarMesa);
 
 export default router;
