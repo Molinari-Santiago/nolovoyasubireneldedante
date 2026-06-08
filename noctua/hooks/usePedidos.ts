@@ -3,7 +3,7 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { pedidosService } from '@/services/pedidosService';
 import { usePedidosStore } from '@/store/pedidosStore';
-import { queryClient } from '@/lib/queryClient';
+import { queryClient } from '@/hooks/lib/queryClient';
 import type { EstadoCocina } from '@/types/pedido';
 
 export const usePedidos = () => {

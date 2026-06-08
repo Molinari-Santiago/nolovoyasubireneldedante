@@ -47,7 +47,9 @@ function mapEstadoMesa(mesa: MesaBackend): EstadoMesa {
 }
 
 export async function obtenerMesas(): Promise<Mesa[]> {
-  const { data, error } = await supabase.from("mesas").select("*");
+  const { data, error } = await supabase
+    .from("mesas")
+    .select("id, numero, capacidad, ubicacion, zona, disponible, estado, pos_x, pos_y, personas, pedido_id, creada_en");
 
   if (error) {
     console.error("Error al obtener mesas de Supabase:", error);
@@ -90,7 +92,7 @@ export async function crearMesa(data: {
         piso: "baja",
       },
     ])
-    .select()
+    .select("id, numero, capacidad, ubicacion, zona, disponible, estado, pos_x, pos_y, personas, pedido_id, creada_en")
     .single();
 
   if (error) {
@@ -144,7 +146,7 @@ export async function actualizarMesa(
     .from("mesas")
     .update(cambios)
     .eq("id", queryId)
-    .select()
+    .select("id, numero, capacidad, ubicacion, zona, disponible, estado, pos_x, pos_y, personas, pedido_id, creada_en")
     .single();
 
   if (error) {
@@ -209,7 +211,7 @@ export async function actualizarEstadoMesa(id: string, estado: EstadoMesa) {
     .from("mesas")
     .update(cambios)
     .eq("id", queryId)
-    .select()
+    .select("id, numero, capacidad, ubicacion, zona, disponible, estado, pos_x, pos_y, personas, pedido_id, creada_en")
     .single();
 
   if (error) {

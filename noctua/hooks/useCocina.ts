@@ -3,7 +3,7 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { cocinaService } from '@/services/cocinaService';
 import { usePedidosStore } from '@/store/pedidosStore';
-import { queryClient } from '@/lib/queryClient';
+import { queryClient } from '@/hooks/lib/queryClient';
 
 export const useCocina = () => {
   const pedidos = usePedidosStore((s) => s.pedidos.filter((p) => p.estado !== 'entregado'));

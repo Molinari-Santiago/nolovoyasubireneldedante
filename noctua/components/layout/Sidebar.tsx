@@ -10,10 +10,12 @@ import {
   Package,
   CalendarDays,
   LogOut,
+  LayoutDashboard,
   Menu,
   X,
   History,
   Receipt,
+  ShieldCheck,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
@@ -26,6 +28,7 @@ import {
 } from '@/config/roles';
 
 const NAV_ITEMS = [
+  { seccion: 'analytics', icon: LayoutDashboard },
   { seccion: 'mesas', icon: UtensilsCrossed },
   { seccion: 'pedidos', icon: ClipboardList },
   { seccion: 'cocina', icon: ChefHat },
@@ -33,6 +36,7 @@ const NAV_ITEMS = [
   { seccion: 'historial', icon: History },
   { seccion: 'stock', icon: Package },
   { seccion: 'reservas', icon: CalendarDays },
+  { seccion: 'administracion', icon: ShieldCheck },
 ] satisfies {
   seccion: SeccionSistema;
   icon: typeof UtensilsCrossed;
@@ -76,17 +80,9 @@ export function Sidebar() {
       </AnimatePresence>
 
       {/* Sidebar — desktop always visible, mobile slide-in */}
-      <motion.aside
-        initial={false}
-        animate={
-          typeof window !== 'undefined' && window.innerWidth < 1024
-            ? { x: mobileOpen ? 0 : -280 }
-            : { x: 0 }
-        }
-        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      <aside
         className={cn(
-          'fixed left-0 top-0 h-full w-64 bg-[#080808] border-r border-[#1a1a1a] flex flex-col z-40',
-          'lg:translate-x-0',
+          'fixed left-0 top-0 h-full w-64 bg-[#080808] border-r border-[#1a1a1a] flex flex-col z-40 transition-transform duration-200',
           mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         )}
       >
@@ -156,7 +152,7 @@ export function Sidebar() {
             Cerrar sesión
           </button>
         </div>
-      </motion.aside>
+      </aside>
     </>
   );
 }

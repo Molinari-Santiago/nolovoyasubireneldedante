@@ -1,4 +1,5 @@
 export type SeccionSistema =
+  | 'analytics'
   | 'mesas'
   | 'pedidos'
   | 'cocina'
@@ -19,6 +20,7 @@ export type RolSistema =
 
 export const SECCIONES_POR_ROL: Record<RolSistema, SeccionSistema[]> = {
   admin: [
+    'analytics',
     'mesas',
     'pedidos',
     'cocina',
@@ -37,6 +39,7 @@ export const SECCIONES_POR_ROL: Record<RolSistema, SeccionSistema[]> = {
 };
 
 export const RUTA_POR_SECCION: Record<SeccionSistema, string> = {
+  analytics: '/dashboard/analytics',
   mesas: '/dashboard/mesas',
   pedidos: '/dashboard/pedido',
   cocina: '/dashboard/cocina',
@@ -49,6 +52,7 @@ export const RUTA_POR_SECCION: Record<SeccionSistema, string> = {
 };
 
 export const LABEL_POR_SECCION: Record<SeccionSistema, string> = {
+  analytics: 'Dashboard',
   mesas: 'Mesas',
   pedidos: 'Pedidos',
   cocina: 'Cocina',
@@ -56,7 +60,7 @@ export const LABEL_POR_SECCION: Record<SeccionSistema, string> = {
   historial: 'Historial',
   stock: 'Stock',
   reservas: 'Reservas',
-  administracion: 'Administracion',
+  administracion: 'Administración',
   delivery: 'Delivery',
 };
 

@@ -16,6 +16,20 @@ export const cocinaService = {
     return usePedidosStore.getState().pedidos.filter((p) => p.estado !== 'entregado');
   },
 
+  avanzarEstado: async (pedidoId: string): Promise<void> => {
+    const pedido = usePedidosStore.getState().pedidos.find((item) => item.id === pedidoId);
+    if (!pedido) return;
+
+    const siguienteEstado: Record<EstadoCocina, EstadoCocina> = {
+      pendiente: 'preparando',
+      preparando: 'listo',
+      listo: 'entregado',
+      entregado: 'entregado',
+    };
+
+    await cocinaService.cambiarEstadoLibre(pedidoId, siguienteEstado[pedido.estado]);
+  },
+
   cambiarEstadoLibre: async (pedidoId: string, nuevoEstado: EstadoCocina): Promise<void> => {
     const { pedidos, actualizarEstadoCocina } = usePedidosStore.getState();
     const pedido = pedidos.find((p) => p.id === pedidoId);

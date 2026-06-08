@@ -3,7 +3,7 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { stockService } from '@/services/stockService';
 import { useStockStore } from '@/store/stockStore';
-import { queryClient } from '@/lib/queryClient';
+import { queryClient } from '@/hooks/lib/queryClient';
 
 export const useStock = () => {
   const productos = useStockStore((s) => s.productos);

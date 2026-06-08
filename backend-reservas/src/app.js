@@ -6,6 +6,7 @@ import reservasRoutes from "./routes/reservas.routes.js";
 import productosRoutes from "./routes/productos.routes.js";
 import pedidosRoutes from "./routes/pedidos.routes.js";
 import facturasRoutes from "./routes/facturas.routes.js";
+import usuariosRoutes from "./routes/usuarios.routes.js";
 
 const app = express();
 
@@ -21,5 +22,6 @@ app.use("/api/reservas", reservasRoutes);
 app.use("/api/productos", productosRoutes);
 app.use("/api/pedidos", pedidosRoutes);
 app.use("/api/facturas", facturasRoutes);
+app.use("/api/usuarios", usuariosRoutes);
 
 export default app;

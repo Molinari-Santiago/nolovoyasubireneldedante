@@ -19,7 +19,7 @@ export interface Reserva {
 export async function obtenerReservas(): Promise<Reserva[]> {
   const { data, error } = await supabase
     .from("reservas")
-    .select("*")
+    .select("id, nombre_cliente, email_cliente, email, telefono, cantidad_personas, fecha, hora, estado, codigo_reserva, mesa_id, mesas_ids, creada_en, cancelada_en")
     .order("fecha", { ascending: true })
     .order("hora", { ascending: true });
 

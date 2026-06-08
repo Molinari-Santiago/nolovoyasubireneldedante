@@ -47,8 +47,9 @@ function mapDBPedido(p: DBPedido): Pedido {
 export async function obtenerPedidos(): Promise<Pedido[]> {
   const { data, error } = await supabase
     .from("pedidos")
-    .select("*, pedido_items(*)")
-    .order("created_at", { ascending: false });
+    .select("id, mesa_id, numero_mesa, zona, personas, total, estado, created_at, pedido_items(producto_id, nombre, cantidad, precio_unitario, subtotal, notas)")
+    .order("created_at", { ascending: false })
+    .limit(100);
 
   if (error) {
     console.error("Error al obtener pedidos:", error);
@@ -61,7 +62,7 @@ export async function obtenerPedidos(): Promise<Pedido[]> {
 export async function obtenerPedidosPorFecha(inicio: string, fin: string): Promise<Pedido[]> {
   const { data, error } = await supabase
     .from("pedidos")
-    .select("*, pedido_items(*)")
+    .select("id, mesa_id, numero_mesa, zona, personas, total, estado, created_at, pedido_items(producto_id, nombre, cantidad, precio_unitario, subtotal, notas)")
     .gte("created_at", inicio)
     .lte("created_at", fin)
     .order("created_at", { ascending: false });
@@ -100,7 +101,7 @@ export async function crearPedido(data: {
       total: data.total,
       estado: "pendiente",
     })
-    .select()
+    .select("id, mesa_id, numero_mesa, zona, personas, total, estado, created_at")
     .single();
 
   if (pedidoError) {
@@ -129,7 +130,7 @@ export async function crearPedido(data: {
   // 3. Devolver el pedido completo con los items
   const { data: fullPedido, error: fetchError } = await supabase
     .from("pedidos")
-    .select("*, pedido_items(*)")
+    .select("id, mesa_id, numero_mesa, zona, personas, total, estado, created_at, pedido_items(producto_id, nombre, cantidad, precio_unitario, subtotal, notas)")
     .eq("id", pedidoData.id)
     .single();
 

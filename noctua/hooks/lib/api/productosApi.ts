@@ -1,8 +1,38 @@
 import { supabase } from "../supabaseClient";
 import type { Producto, Categoria } from "@/types/producto";
 
+type ProductoRow = {
+  id: string | number;
+  nombre: string;
+  precio: number | string;
+  categoria_id: string;
+  stock_actual?: number | null;
+  disponible?: boolean | null;
+  categorias?: { id: string; nombre: string } | { id: string; nombre: string }[] | null;
+};
+
+function mapCategoriaRelacion(categorias: ProductoRow["categorias"]): Categoria | undefined {
+  const categoria = Array.isArray(categorias) ? categorias[0] : categorias;
+  return categoria ? { id: String(categoria.id), nombre: categoria.nombre } : undefined;
+}
+
+function mapProducto(producto: ProductoRow): Producto {
+  return {
+    id: String(producto.id),
+    nombre: producto.nombre,
+    precio: Number(producto.precio),
+    categoria_id: producto.categoria_id,
+    categoria: mapCategoriaRelacion(producto.categorias),
+    stock: producto.stock_actual ?? 0,
+    disponible: producto.disponible ?? true,
+  };
+}
+
 export async function obtenerCategorias(): Promise<Categoria[]> {
-  const { data, error } = await supabase.from('categorias').select('*').order('nombre');
+  const { data, error } = await supabase
+    .from('categorias')
+    .select('id, nombre, color')
+    .order('nombre');
 
   if (error) {
     console.error("Error al obtener categorías de Supabase:", error);
@@ -22,22 +52,16 @@ export async function obtenerCategorias(): Promise<Categoria[]> {
 }
 
 export async function obtenerProductos(): Promise<Producto[]> {
-  const { data, error } = await supabase.from('productos').select('*, categorias(id, nombre)');
+  const { data, error } = await supabase
+    .from('productos')
+    .select('id, nombre, precio, categoria_id, stock_actual, disponible, categorias(id, nombre)');
 
   if (error) {
     console.error("Error al obtener productos de Supabase:", error);
     throw new Error(error.message);
   }
 
-  return (data || []).map((producto) => ({
-    id: String(producto.id),
-    nombre: producto.nombre,
-    precio: Number(producto.precio),
-    categoria_id: producto.categoria_id,
-    categoria: producto.categorias ? { id: producto.categorias.id, nombre: producto.categorias.nombre } : undefined,
-    stock: producto.stock_actual ?? 0,
-    disponible: producto.disponible ?? true,
-  }));
+  return ((data || []) as ProductoRow[]).map(mapProducto);
 }
 
 export async function crearProducto(data: {
@@ -58,7 +82,7 @@ export async function crearProducto(data: {
         disponible: data.disponible,
       }
     ])
-    .select('*, categorias(id, nombre)')
+    .select('id, nombre, precio, categoria_id, stock_actual, disponible, categorias(id, nombre)')
     .maybeSingle();
 
   if (error) {
@@ -72,15 +96,7 @@ export async function crearProducto(data: {
 
   return { 
     success: true, 
-    producto: {
-      id: String(nuevoProducto.id),
-      nombre: nuevoProducto.nombre,
-      precio: Number(nuevoProducto.precio),
-      categoria_id: nuevoProducto.categoria_id,
-      categoria: nuevoProducto.categorias ? { id: nuevoProducto.categorias.id, nombre: nuevoProducto.categorias.nombre } : undefined,
-      stock: nuevoProducto.stock_actual ?? 0,
-      disponible: nuevoProducto.disponible ?? true,
-    } 
+    producto: mapProducto(nuevoProducto as ProductoRow)
   };
 }
 
