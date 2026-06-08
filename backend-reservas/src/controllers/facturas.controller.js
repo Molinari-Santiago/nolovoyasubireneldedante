@@ -270,7 +270,8 @@ export const obtenerPedidosListosParaCobrar = async (req, res) => {
         )
       `)
       .in("estado", ESTADOS_LISTOS_PARA_COBRAR)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(50);
 
     if (error) throw new Error(error.message);
 
@@ -492,7 +493,8 @@ export const obtenerFacturas = async (req, res) => {
           )
         )
       `)
-      .order("creado_en", { ascending: false });
+      .order("creado_en", { ascending: false })
+      .limit(Number(req.query.limit || 20));
 
     if (error) throw new Error(error.message);
 
