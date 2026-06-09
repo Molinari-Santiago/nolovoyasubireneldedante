@@ -81,7 +81,7 @@ export const abrirPedido = async (req, res) => {
       .from("pedidos")
       .select("id")
       .eq("mesa_id", mesaId)
-      .in("estado", ["abierto", "pendiente", "preparando", "listo"])
+      .in("estado", ["pendiente", "preparando", "listo"])
       .maybeSingle();
 
     if (pedidoAbierto) {
@@ -94,7 +94,7 @@ export const abrirPedido = async (req, res) => {
       .from("pedidos")
       .insert({
         mesa_id: mesaId,
-        estado: "abierto",
+        estado: "pendiente",
         subtotal: 0,
         impuestos: 0,
         total: 0,
@@ -254,7 +254,7 @@ export const cerrarPedido = async (req, res) => {
 
     const { error: pedidoError } = await supabaseAdmin
       .from("pedidos")
-      .update({ estado: "cerrada" })
+      .update({ estado: "entregado" })
       .eq("id", id);
 
     if (pedidoError) throw new Error(pedidoError.message);
@@ -308,6 +308,67 @@ export const cancelarPedido = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       mensaje: "Error al cancelar el pedido",
+      error: error.message,
+    });
+  }
+};
+export const actualizarEstado = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { estado } = req.body;
+
+    const ESTADOS_VALIDOS = ["pendiente", "preparando", "listo", "entregado", "cancelado"];
+    if (!estado || !ESTADOS_VALIDOS.includes(estado)) {
+      return res.status(400).json({
+        mensaje: `Estado inválido. Debe ser uno de: ${ESTADOS_VALIDOS.join(", ")}`,
+      });
+    }
+
+    const { error } = await supabaseAdmin
+      .from("pedidos")
+      .update({ estado })
+      .eq("id", id);
+
+    if (error) throw new Error(error.message);
+
+    const pedido = await obtenerPedidoCompleto(id);
+
+    return res.json({
+      mensaje: "Estado actualizado correctamente",
+      pedido: mapPedido(pedido),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      mensaje: "Error al actualizar estado del pedido",
+      error: error.message,
+    });
+  }
+};
+
+export const eliminarPedido = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Primero eliminamos los items del pedido (FK constraint)
+    const { error: itemsError } = await supabaseAdmin
+      .from("pedido_items")
+      .delete()
+      .eq("pedido_id", id);
+
+    if (itemsError) throw new Error(itemsError.message);
+
+    // Luego eliminamos el pedido
+    const { error } = await supabaseAdmin
+      .from("pedidos")
+      .delete()
+      .eq("id", id);
+
+    if (error) throw new Error(error.message);
+
+    return res.json({ mensaje: "Pedido eliminado correctamente" });
+  } catch (error) {
+    return res.status(500).json({
+      mensaje: "Error al eliminar el pedido",
       error: error.message,
     });
   }

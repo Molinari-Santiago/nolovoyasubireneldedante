@@ -371,6 +371,18 @@ export default function StockPage() {
           {/* Tabs + Add button */}
           <div className="flex items-center gap-2">
             <div className="flex-1 flex gap-1 bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-1 overflow-x-auto">
+              <button
+                onClick={() => setCategoriaActiva('')}
+                aria-pressed={!categoriaActiva}
+                className={cn(
+                  "flex-1 py-2 px-3 rounded-lg text-xs font-bold tracking-widest uppercase transition-all duration-150 whitespace-nowrap",
+                  !categoriaActiva
+                    ? "bg-white text-black"
+                    : "text-[#676B67] hover:text-white"
+                )}
+              >
+                Todos
+              </button>
               {categorias.map((cat) => (
                 <button
                   key={cat.id}

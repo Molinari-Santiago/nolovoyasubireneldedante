@@ -75,11 +75,7 @@ export default function PedidoPage() {
     cargarCategorias().then(() => cargarProductos());
   }, [cargarMesas, cargarCategorias, cargarProductos]);
 
-  useEffect(() => {
-    if (!categoriaActiva && categorias.length > 0) {
-      setCategoriaActiva(categorias[0].id);
-    }
-  }, [categorias, categoriaActiva]);
+
 
   const {
     pedidoActual,
@@ -95,7 +91,10 @@ export default function PedidoPage() {
   const mesaActiva = mesas.find((m) => m.id === (mesaActivaId ?? mesaSeleccionadaId));
 
   const productosFiltrados = useMemo(
-    () => productos.filter((p) => p.categoria_id === categoriaActiva),
+    () => {
+      if (!categoriaActiva) return productos;
+      return productos.filter((p) => p.categoria_id === categoriaActiva);
+    },
     [productos, categoriaActiva]
   );
 
@@ -129,6 +128,18 @@ export default function PedidoPage() {
         <p className="text-xs font-semibold text-[#676B67] tracking-widest uppercase px-1 mb-1">
           Categoría
         </p>
+        <button
+          onClick={() => setCategoriaActiva('')}
+          aria-pressed={categoriaActiva === ''}
+          className={cn(
+            'w-full py-3 px-4 rounded-xl text-sm font-bold tracking-wide transition-all duration-150 text-left capitalize',
+            categoriaActiva === ''
+              ? 'bg-white text-black'
+              : 'bg-[#0f0f0f] border border-[#1a1a1a] text-[#676B67] hover:text-white hover:border-[#2a2a2a]'
+          )}
+        >
+          Todos
+        </button>
         {categorias.map((cat) => (
           <button
             key={cat.id}
@@ -150,7 +161,7 @@ export default function PedidoPage() {
       <div className="flex-1 min-w-0 overflow-y-auto space-y-2 pr-1">
         <div className="flex items-center justify-between px-1 mb-3">
           <h3 className="font-display text-xl tracking-widest text-[#BCB9B9] uppercase">
-            {categorias.find(c => c.id === categoriaActiva)?.nombre || ''}
+            {categoriaActiva ? categorias.find(c => c.id === categoriaActiva)?.nombre : 'Todos los productos'}
           </h3>
           <span className="text-xs text-[#676B67]">{productosFiltrados.length} productos</span>
         </div>

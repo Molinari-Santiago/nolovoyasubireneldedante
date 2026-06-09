@@ -2,14 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DashboardData, DateRange } from '@/types/analytics';
-import {
-  fetchHourlySales,
-  fetchKPIs,
-  fetchPaymentMethods,
-  fetchReservationStats,
-  fetchRevenueOverTime,
-  fetchTopProducts,
-} from '@/services/analyticsService';
+import { fetchAllAnalytics } from '@/services/analyticsService';
 
 interface DashboardDataState {
   data: DashboardData | null;
@@ -31,32 +24,11 @@ export function useDashboardData(dateRange: DateRange): DashboardDataState {
     setError(null);
 
     try {
-      const [
-        kpis,
-        revenueOverTime,
-        hourlySales,
-        topProducts,
-        paymentMethods,
-        reservationStats,
-      ] = await Promise.all([
-        fetchKPIs(dateRange.from, dateRange.to),
-        fetchRevenueOverTime(dateRange.from, dateRange.to, dateRange.preset),
-        fetchHourlySales(dateRange.from, dateRange.to),
-        fetchTopProducts(dateRange.from, dateRange.to),
-        fetchPaymentMethods(dateRange.from, dateRange.to),
-        fetchReservationStats(dateRange.from, dateRange.to),
-      ]);
+      const result = await fetchAllAnalytics(dateRange.from, dateRange.to, dateRange.preset);
 
       if (requestId.current !== currentRequest) return;
 
-      setData({
-        kpis,
-        revenueOverTime,
-        hourlySales,
-        topProducts,
-        paymentMethods,
-        reservationStats,
-      });
+      setData(result);
     } catch (err) {
       if (requestId.current !== currentRequest) return;
       setError(err instanceof Error ? err.message : 'Error al cargar los datos. Intentá de nuevo.');

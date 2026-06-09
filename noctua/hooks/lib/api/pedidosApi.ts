@@ -1,79 +1,106 @@
-import { supabase } from "@/hooks/lib/supabaseClient";
 import type { Pedido, EstadoCocina } from "@/types/pedido";
 
-interface DBItem {
-  producto_id: string;
-  nombre: string;
-  cantidad: number;
-  precio_unitario: number;
-  subtotal: number;
-  notas?: string;
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api";
+
+async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+  const json = await response.json();
+  if (!response.ok) {
+    throw new Error(json.mensaje || json.error || `Error ${response.status}`);
+  }
+  return json;
 }
 
-interface DBPedido {
+// ── Mapea la respuesta del backend Express al tipo Pedido del frontend ─────────
+
+function mapBackendPedido(p: {
   id: string;
-  mesa_id: string;
-  numero_mesa: number;
-  zona: string;
-  personas: number;
-  total: number;
+  mesaId?: string;
+  mesa_id?: string;
   estado: string;
-  created_at: string;
-  pedido_items?: DBItem[];
-}
-
-function mapDBPedido(p: DBPedido): Pedido {
+  total: number;
+  subtotal?: number;
+  abiertoEn?: string;
+  abierto_en?: string;
+  createdAt?: string;
+  created_at?: string;
+  mesa?: { id?: string; numero: number; zona?: string };
+  items?: {
+    productoId?: string;
+    producto_id?: string;
+    producto?: { nombre: string };
+    nombre?: string;
+    cantidad: number;
+    precioUnitario?: number;
+    precio_unitario?: number;
+    subtotal: number;
+    notas?: string;
+  }[];
+  detalles?: {
+    productoId?: string;
+    producto_id?: string;
+    producto?: { nombre: string };
+    nombre?: string;
+    cantidad: number;
+    precioUnitario?: number;
+    precio_unitario?: number;
+    subtotal: number;
+    notas?: string;
+  }[];
+}): Pedido {
+  const items = p.items || p.detalles || [];
   return {
     id: p.id,
-    mesaId: p.mesa_id,
-    numeroMesa: p.numero_mesa,
-    zona: p.zona,
-    items: (p.pedido_items || []).map((i) => ({
-      productoId: i.producto_id,
-      nombre: i.nombre,
-      cantidad: i.cantidad,
-      precioUnitario: i.precio_unitario,
-      subtotal: i.subtotal,
+    mesaId: p.mesaId || p.mesa_id || "",
+    numeroMesa: p.mesa?.numero || 0,
+    zona: p.mesa?.zona || "SALÓN PRINCIPAL",
+    items: items.map((i) => ({
+      productoId: i.productoId || i.producto_id || "",
+      nombre: i.producto?.nombre || i.nombre || "Producto",
+      cantidad: Number(i.cantidad),
+      precioUnitario: Number(i.precioUnitario ?? i.precio_unitario ?? 0),
+      subtotal: Number(i.subtotal),
       notas: i.notas,
     })),
-    total: p.total,
-    estado: p.estado as EstadoCocina,
-    creadoEn: new Date(p.created_at || new Date().toISOString()),
-    actualizadoEn: new Date(), // Usamos la fecha local
-    personas: p.personas,
+    total: Number(p.total || p.subtotal || 0),
+    estado: (p.estado || "pendiente") as EstadoCocina,
+    creadoEn: new Date(p.abiertoEn || p.abierto_en || p.createdAt || p.created_at || new Date().toISOString()),
+    actualizadoEn: new Date(),
+    personas: 1,
   };
 }
 
+// ── Lecturas: a través del backend Express (bypassea RLS) ─────────────────────
+
 export async function obtenerPedidos(): Promise<Pedido[]> {
-  const { data, error } = await supabase
-    .from("pedidos")
-    .select("id, mesa_id, numero_mesa, zona, personas, total, estado, created_at, pedido_items(producto_id, nombre, cantidad, precio_unitario, subtotal, notas)")
-    .order("created_at", { ascending: false })
-    .limit(100);
-
-  if (error) {
+  try {
+    const data = await apiFetch<{ pedidos: unknown[] }>("/pedidos");
+    const pedidos = data.pedidos || [];
+    return pedidos.map((p) => mapBackendPedido(p as Parameters<typeof mapBackendPedido>[0]));
+  } catch (error) {
     console.error("Error al obtener pedidos:", error);
-    throw new Error(error.message);
+    return [];
   }
-
-  return (data as DBPedido[]).map(mapDBPedido);
 }
 
 export async function obtenerPedidosPorFecha(inicio: string, fin: string): Promise<Pedido[]> {
-  const { data, error } = await supabase
-    .from("pedidos")
-    .select("id, mesa_id, numero_mesa, zona, personas, total, estado, created_at, pedido_items(producto_id, nombre, cantidad, precio_unitario, subtotal, notas)")
-    .gte("created_at", inicio)
-    .lte("created_at", fin)
-    .order("created_at", { ascending: false });
-
-  if (error) {
+  try {
+    const data = await apiFetch<{ pedidos: unknown[] }>(`/pedidos?desde=${inicio}&hasta=${fin}`);
+    const pedidos = data.pedidos || [];
+    return pedidos.map((p) => mapBackendPedido(p as Parameters<typeof mapBackendPedido>[0]));
+  } catch (error) {
     console.error("Error al obtener pedidos por fecha:", error);
-    throw new Error(error.message);
+    return [];
   }
-
-  return (data as DBPedido[]).map(mapDBPedido);
 }
+
+// ── Escrituras: a través del backend Express (bypassea RLS) ──────────────────
 
 export async function crearPedido(data: {
   mesaId: string;
@@ -90,68 +117,47 @@ export async function crearPedido(data: {
     notas?: string;
   }[];
 }): Promise<{ success: boolean; pedido: Pedido }> {
-  // 1. Crear el pedido
-  const { data: pedidoData, error: pedidoError } = await supabase
-    .from("pedidos")
-    .insert({
-      mesa_id: data.mesaId,
-      numero_mesa: data.numeroMesa,
-      zona: data.zona,
-      personas: data.personas,
-      total: data.total,
-      estado: "pendiente",
-    })
-    .select("id, mesa_id, numero_mesa, zona, personas, total, estado, created_at")
-    .single();
+  // 1. Crear el pedido via backend
+  const { pedido: pedidoCreado } = await apiFetch<{ pedido: Parameters<typeof mapBackendPedido>[0] }>(
+    "/pedidos",
+    {
+      method: "POST",
+      body: JSON.stringify({ mesaId: data.mesaId }),
+    }
+  );
 
-  if (pedidoError) {
-    console.error("Error al crear pedido:", pedidoError);
-    throw new Error(pedidoError.message);
+  // 2. Agregar cada item via backend
+  for (const item of data.items) {
+    await apiFetch(`/pedidos/${pedidoCreado.id}/productos`, {
+      method: "POST",
+      body: JSON.stringify({
+        productoId: item.productoId,
+        cantidad: item.cantidad,
+        notas: item.notas,
+      }),
+    });
   }
 
-  // 2. Insertar los items
-  const itemsToInsert = data.items.map((i) => ({
-    pedido_id: pedidoData.id,
-    producto_id: i.productoId,
-    nombre: i.nombre,
-    cantidad: i.cantidad,
-    precio_unitario: i.precioUnitario,
-    subtotal: i.subtotal,
-    notas: i.notas,
-  }));
-
-  const { error: itemsError } = await supabase.from("pedido_items").insert(itemsToInsert);
-
-  if (itemsError) {
-    console.error("Error al crear items del pedido:", itemsError);
-    throw new Error(itemsError.message);
+  // 3. Obtener el pedido completo actualizado via backend
+  try {
+    const { pedido: fullPedido } = await apiFetch<{ pedido: Parameters<typeof mapBackendPedido>[0] }>(
+      `/pedidos/${pedidoCreado.id}`
+    );
+    return { success: true, pedido: mapBackendPedido(fullPedido) };
+  } catch {
+    return { success: true, pedido: mapBackendPedido(pedidoCreado) };
   }
-
-  // 3. Devolver el pedido completo con los items
-  const { data: fullPedido, error: fetchError } = await supabase
-    .from("pedidos")
-    .select("id, mesa_id, numero_mesa, zona, personas, total, estado, created_at, pedido_items(producto_id, nombre, cantidad, precio_unitario, subtotal, notas)")
-    .eq("id", pedidoData.id)
-    .single();
-
-  if (fetchError) throw new Error(fetchError.message);
-
-  return { success: true, pedido: mapDBPedido(fullPedido as DBPedido) };
 }
 
 export async function actualizarEstadoPedido(
   pedidoId: string,
   estado: EstadoCocina
 ) {
-  const { error } = await supabase
-    .from("pedidos")
-    .update({ estado }) // Omitimos actualizado_en para no requerir esa columna en la DB si no existe
-    .eq("id", pedidoId);
-
-  if (error) {
-    console.error("Error al actualizar estado del pedido:", error);
-    throw new Error(error.message);
-  }
+  // Todos los cambios de estado pasan por el backend (bypassea RLS)
+  await apiFetch(`/pedidos/${pedidoId}/estado`, {
+    method: "PATCH",
+    body: JSON.stringify({ estado }),
+  });
 
   return { success: true };
 }
