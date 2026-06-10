@@ -16,6 +16,7 @@ import {
   History,
   Receipt,
   ShieldCheck,
+  Truck,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
@@ -35,6 +36,7 @@ const NAV_ITEMS = [
   { seccion: 'cajero', icon: Receipt },
   { seccion: 'historial', icon: History },
   { seccion: 'stock', icon: Package },
+  { seccion: 'delivery', icon: Truck },
   { seccion: 'reservas', icon: CalendarDays },
   { seccion: 'administracion', icon: ShieldCheck },
 ] satisfies {

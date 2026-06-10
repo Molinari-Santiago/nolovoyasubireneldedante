@@ -3,18 +3,29 @@ import type { Pedido, EstadoCocina } from "@/types/pedido";
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api";
 
 async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-  });
-  const json = await response.json();
-  if (!response.ok) {
-    throw new Error(json.mensaje || json.error || `Error ${response.status}`);
+  try {
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+    });
+
+    if (!response.ok) {
+      const json = await response.json().catch(() => ({}));
+      throw new Error(json.mensaje || json.error || `Error ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (error instanceof TypeError && error.message === "Failed to fetch") {
+      console.error(`ERROR DE CONEXIÓN: No se pudo contactar con el backend en ${API_URL}${endpoint}. ¿Está el servidor Express corriendo?`);
+    } else {
+      console.error(`API fetch failed for ${endpoint}:`, error);
+    }
+    throw error;
   }
-  return json;
 }
 
 // ── Mapea la respuesta del backend Express al tipo Pedido del frontend ─────────
