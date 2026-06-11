@@ -48,7 +48,7 @@ export const RUTA_POR_SECCION: Record<SeccionSistema, string> = {
   stock: '/dashboard/stock',
   reservas: '/dashboard/reservas',
   administracion: '/dashboard/administracion',
-  delivery: '/delivery',
+  delivery: '/dashboard/delivery',
 };
 
 export const LABEL_POR_SECCION: Record<SeccionSistema, string> = {
@@ -70,7 +70,7 @@ export const HOME_POR_ROL: Record<RolSistema, string> = {
   cocina: '/dashboard/cocina',
   mozo: '/dashboard/mesas',
   stock: '/dashboard/stock',
-  delivery: '/delivery',
+  delivery: '/dashboard/delivery',
 };
 
 export function obtenerSeccionesPorRol(rol?: string | null): SeccionSistema[] {

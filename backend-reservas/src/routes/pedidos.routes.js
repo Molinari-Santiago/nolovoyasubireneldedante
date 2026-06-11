@@ -6,7 +6,8 @@ import {
   obtenerPedidoPorId,
   agregarProductoAlPedido,
   cerrarPedido,
-  cancelarPedido
+  cancelarPedido,
+  actualizarEstado
 } from "../controllers/pedidos.controller.js";
 
 const router = Router();
@@ -17,5 +18,6 @@ router.get("/:id", obtenerPedidoPorId);
 router.post("/:id/productos", agregarProductoAlPedido);
 router.patch("/:id/cerrar", cerrarPedido);
 router.patch("/:id/cancelar", cancelarPedido);
+router.patch("/:id/estado", actualizarEstado);
 
 export default router;

@@ -1,20 +1,30 @@
-import type { Producto } from '@/types/producto';
+import type { Ingredient } from '@/types/stock';
 import { useStockStore } from '@/store/stockStore';
 
 export const stockService = {
-  getProductos: async (): Promise<Producto[]> => {
-    // TODO: Supabase — supabase.from('productos').select('*').order('categoria').order('nombre')
+  fetchAllIngredients: async (): Promise<Ingredient[]> => {
+    // TODO: Supabase — supabase.from('ingredients').select('*').order('category').order('name')
     await new Promise((r) => setTimeout(r, 50));
-    return useStockStore.getState().productos;
+    const state = useStockStore.getState();
+    return state.categories.flatMap(cat => cat.ingredients);
   },
 
-  modificarStock: async (id: string, delta: number): Promise<void> => {
-    // TODO: Supabase — supabase.rpc('modificar_stock', { producto_id: id, delta })
-    useStockStore.getState().modificarStock(id, delta);
+  updateIngredientStock: async (id: string, stock: number): Promise<Ingredient> => {
+    // TODO: Supabase — supabase.from('ingredients').update({ stock, last_updated: new Date() }).eq('id', id).select().single()
+    const state = useStockStore.getState();
+    state.updateStock(id, stock);
+    const updatedIngredient = state.categories.flatMap(cat => cat.ingredients).find(i => i.id === id);
+    if (!updatedIngredient) throw new Error('Ingredient not found');
+    return updatedIngredient;
   },
 
-  toggleDisponibilidad: async (id: string): Promise<void> => {
-    // TODO: Supabase — supabase.from('productos').update({ disponible: !current }).eq('id', id)
-    useStockStore.getState().toggleDisponibilidad(id);
+  addIngredient: async (ingredient: Omit<Ingredient, 'id' | 'lastUpdated'>): Promise<Ingredient> => {
+    // TODO: Supabase — const { data } = await supabase.from('ingredients').insert(ingredient).select().single();
+    await new Promise((r) => setTimeout(r, 50));
+    const state = useStockStore.getState();
+    state.addIngredient(ingredient);
+    const newIngredient = state.categories.flatMap(cat => cat.ingredients).find(i => i.name === ingredient.name && i.category === ingredient.category);
+    if (!newIngredient) throw new Error('Failed to add ingredient');
+    return newIngredient;
   },
 };

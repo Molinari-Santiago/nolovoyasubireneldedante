@@ -6,7 +6,7 @@ type ProductoRow = {
   nombre: string;
   precio: number | string;
   categoria_id: string;
-  stock_actual?: number | null;
+  stock?: number | null;
   disponible?: boolean | null;
   categorias?: { id: string; nombre: string } | { id: string; nombre: string }[] | null;
 };
@@ -23,7 +23,7 @@ function mapProducto(producto: ProductoRow): Producto {
     precio: Number(producto.precio),
     categoria_id: producto.categoria_id,
     categoria: mapCategoriaRelacion(producto.categorias),
-    stock: producto.stock_actual ?? 0,
+    stock: producto.stock ?? 0,
     disponible: producto.disponible ?? true,
   };
 }
@@ -54,7 +54,7 @@ export async function obtenerCategorias(): Promise<Categoria[]> {
 export async function obtenerProductos(): Promise<Producto[]> {
   const { data, error } = await supabase
     .from('productos')
-    .select('id, nombre, precio, categoria_id, stock_actual, disponible, categorias(id, nombre)');
+    .select('id, nombre, precio, categoria_id, stock, disponible, categorias(id, nombre)');
 
   if (error) {
     console.error("Error al obtener productos de Supabase:", error);
@@ -78,11 +78,11 @@ export async function crearProducto(data: {
         nombre: data.nombre,
         precio: data.precio,
         categoria_id: data.categoria_id,
-        stock_actual: data.stock,
+        stock: data.stock,
         disponible: data.disponible,
       }
     ])
-    .select('id, nombre, precio, categoria_id, stock_actual, disponible, categorias(id, nombre)')
+    .select('id, nombre, precio, categoria_id, stock, disponible, categorias(id, nombre)')
     .maybeSingle();
 
   if (error) {

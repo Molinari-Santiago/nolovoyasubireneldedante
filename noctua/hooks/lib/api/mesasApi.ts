@@ -49,7 +49,7 @@ function mapEstadoMesa(mesa: MesaBackend): EstadoMesa {
 export async function obtenerMesas(): Promise<Mesa[]> {
   const { data, error } = await supabase
     .from("mesas")
-    .select("id, numero, capacidad, ubicacion, zona, disponible, estado, pos_x, pos_y, personas, pedido_id, creada_en");
+    .select("id, numero, capacidad, zona, disponible, estado, pos_x, pos_y, creada_en");
 
   if (error) {
     console.error("Error al obtener mesas de Supabase:", error);
@@ -92,7 +92,7 @@ export async function crearMesa(data: {
         piso: "baja",
       },
     ])
-    .select("id, numero, capacidad, ubicacion, zona, disponible, estado, pos_x, pos_y, personas, pedido_id, creada_en")
+    .select("id, numero, capacidad, zona, disponible, estado, pos_x, pos_y, creada_en")
     .single();
 
   if (error) {
@@ -140,13 +140,13 @@ export async function actualizarMesa(
     cambios.pos_x = data.posicion.x;
     cambios.pos_y = data.posicion.y;
   }
-  if (data.personas !== undefined) cambios.personas = data.personas;
+
 
   const { data: mesaActualizada, error } = await supabase
     .from("mesas")
     .update(cambios)
     .eq("id", queryId)
-    .select("id, numero, capacidad, ubicacion, zona, disponible, estado, pos_x, pos_y, personas, pedido_id, creada_en")
+    .select("id, numero, capacidad, zona, disponible, estado, pos_x, pos_y, creada_en")
     .single();
 
   if (error) {
@@ -203,15 +203,14 @@ export async function actualizarEstadoMesa(id: string, estado: EstadoMesa) {
   };
 
   if (estado === "libre") {
-    cambios.personas = null;
-    cambios.pedido_id = null;
+    // personas and pedido_id are not in the db
   }
 
   const { data: mesaActualizada, error } = await supabase
     .from("mesas")
     .update(cambios)
     .eq("id", queryId)
-    .select("id, numero, capacidad, ubicacion, zona, disponible, estado, pos_x, pos_y, personas, pedido_id, creada_en")
+    .select("id, numero, capacidad, zona, disponible, estado, pos_x, pos_y, creada_en")
     .single();
 
   if (error) {
