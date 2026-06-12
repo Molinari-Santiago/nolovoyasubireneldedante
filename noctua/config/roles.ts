@@ -8,7 +8,8 @@ export type SeccionSistema =
   | 'stock'
   | 'reservas'
   | 'administracion'
-  | 'delivery';
+  | 'delivery'
+  | 'soporte';
 
 export type RolSistema =
   | 'admin'
@@ -30,38 +31,41 @@ export const SECCIONES_POR_ROL: Record<RolSistema, SeccionSistema[]> = {
     'reservas',
     'administracion',
     'delivery',
+    'soporte',
   ],
-  cajero: ['mesas', 'pedidos', 'cajero', 'historial'],
-  cocina: ['cocina'],
-  mozo: ['mesas', 'pedidos', 'cocina'],
-  stock: ['stock'],
-  delivery: ['delivery'],
+  cajero:   ['mesas', 'pedidos', 'cajero', 'historial', 'soporte'],
+  cocina:   ['cocina', 'soporte'],
+  mozo:     ['mesas', 'pedidos', 'cocina', 'soporte'],
+  stock:    ['stock', 'soporte'],
+  delivery: ['delivery', 'soporte'],
 };
 
 export const RUTA_POR_SECCION: Record<SeccionSistema, string> = {
-  analytics: '/dashboard/analytics',
-  mesas: '/dashboard/mesas',
-  pedidos: '/dashboard/pedido',
-  cocina: '/dashboard/cocina',
-  cajero: '/dashboard/facturas',
-  historial: '/dashboard/historial',
-  stock: '/dashboard/stock',
-  reservas: '/dashboard/reservas',
+  analytics:      '/dashboard/analytics',
+  mesas:          '/dashboard/mesas',
+  pedidos:        '/dashboard/pedido',
+  cocina:         '/dashboard/cocina',
+  cajero:         '/dashboard/facturas',
+  historial:      '/dashboard/historial',
+  stock:          '/dashboard/stock',
+  reservas:       '/dashboard/reservas',
   administracion: '/dashboard/administracion',
-  delivery: '/dashboard/delivery',
+  delivery:       '/dashboard/delivery',
+  soporte:        '/dashboard/soporte',
 };
 
 export const LABEL_POR_SECCION: Record<SeccionSistema, string> = {
-  analytics: 'Dashboard',
-  mesas: 'Mesas',
-  pedidos: 'Pedidos',
-  cocina: 'Cocina',
-  cajero: 'Facturas',
-  historial: 'Historial',
-  stock: 'Stock',
-  reservas: 'Reservas',
+  analytics:      'Dashboard',
+  mesas:          'Mesas',
+  pedidos:        'Pedidos',
+  cocina:         'Cocina',
+  cajero:         'Facturas',
+  historial:      'Historial',
+  stock:          'Stock',
+  reservas:       'Reservas',
   administracion: 'Administración',
-  delivery: 'Delivery',
+  delivery:       'Delivery',
+  soporte:        'Soporte',
 };
 
 export const HOME_POR_ROL: Record<RolSistema, string> = {

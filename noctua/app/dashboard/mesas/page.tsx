@@ -4,29 +4,12 @@ import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link2, Plus } from "lucide-react";
 import { useMesasStore } from "@/store/mesasStore";
-import { MesaCard } from "@/components/mesas/MesaCard";
 import { MesaModal } from "@/components/mesas/MesaModal";
+import { MesasFloorPlan } from "@/components/mesas/MesasFloorPlan";
 import { Button } from "@/components/ui/Button";
-import { DotBadge } from "@/components/ui/Badge";
-import { COLORES_ESTADO_MESA, TEXTO_ESTADO_MESA } from "@/hooks/lib/constants";
-import type { Mesa, EstadoMesa } from "@/types/mesa";
+import type { Mesa } from "@/types/mesa";
 
-const ZONAS_LAYOUT = [
-  "TERRAZA EXTERIOR",
-  "SALÓN PRINCIPAL",
-  "BAR",
-  "ZONA SOFÁS",
-  "ZONA COCINA",
-];
 
-const ESTADOS_LEYENDA: EstadoMesa[] = [
-  "libre",
-  "ocupada",
-  "esperando_pedido",
-  "pedido_listo",
-  "esperando_pago",
-  "problema",
-];
 
 export default function MesasPage() {
   const mesas = useMesasStore((s) => s.mesas);
@@ -121,9 +104,6 @@ const cancelarEliminarMesa = () => {
       unirMesas(mesasSeleccionadas);
     }
   };
-
-  const getMesasPorZona = (zona: string) =>
-    mesas.filter((m) => m.zona === zona);
 
   return (
     <div className="space-y-6">
@@ -242,70 +222,14 @@ const cancelarEliminarMesa = () => {
         </div>
       )}
 
-      {/* Zones grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {ZONAS_LAYOUT.map((zona) => {
-          const mesasZona = getMesasPorZona(zona);
-
-          if (mesasZona.length === 0) return null;
-
-          return (
-            <div
-              key={zona}
-              className="bg-[#080808] border border-[#1a1a1a] rounded-xl p-5"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-display text-lg tracking-widest text-[#BCB9B9] uppercase">
-                  {zona}
-                </h3>
-
-                <span className="text-xs text-[#676B67]">
-                  {mesasZona.filter((m) => m.estado !== "libre").length}/
-                  {mesasZona.length} ocupadas
-                </span>
-              </div>
-
-              <div className="flex flex-wrap gap-3">
-                {mesasZona.map((mesa) => (
-              <MesaCard
-              key={mesa.id}
-              mesa={mesa}
-              isSelected={mesasSeleccionadas.includes(mesa.id)}
-              onSingleClick={handleSingleClick}
-              onDoubleClick={handleDoubleClick}
-              onDelete={abrirAlertaEliminar}
-/>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Legend */}
-   {/* Legend */}
-<div className="fixed bottom-6 right-6 w-[320px] bg-[#0a0a0a] border border-[#1e1e1e] rounded-xl p-4 shadow-2xl z-20">
-  <p className="text-xs font-semibold text-[#676B67] tracking-widest uppercase mb-3">
-    Estados
-  </p>
-
-  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-    {ESTADOS_LEYENDA.map((estado) => (
-      <DotBadge
-        key={estado}
-        color={COLORES_ESTADO_MESA[estado]}
-        label={TEXTO_ESTADO_MESA[estado]}
-        className="whitespace-nowrap"
+      {/* Plano de planta de mesas */}
+      <MesasFloorPlan
+        mesas={mesas}
+        mesasSeleccionadas={mesasSeleccionadas}
+        onSingleClick={handleSingleClick}
+        onDoubleClick={handleDoubleClick}
+        onDelete={abrirAlertaEliminar}
       />
-    ))}
-  </div>
-
-  <p className="text-[#2a2a2a] text-xs mt-4 font-mono leading-relaxed">
-    Click = seleccionar
-    <br />
-    2× click = gestionar
-  </p>
-</div>
 
       {/* Mesa Modal */}
       <MesaModal

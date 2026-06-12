@@ -111,8 +111,8 @@ export async function GET(req: NextRequest) {
       ]);
 
     // Manejo de errores en pedidos — fallback a abierto_en si created_at falla
-    let pedidos = pedidosRes.data ?? [];
-    let pedidosAnteriores = pedidosAnteriorRes.data ?? [];
+    let pedidos: any[] = pedidosRes.data ?? [];
+    let pedidosAnteriores: any[] = pedidosAnteriorRes.data ?? [];
 
     if (pedidosRes.error) {
       const fallback = await supabase

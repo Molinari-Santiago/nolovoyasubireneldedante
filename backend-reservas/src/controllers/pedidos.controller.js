@@ -126,7 +126,7 @@ export const abrirPedido = async (req, res) => {
 
 export const obtenerPedidos = async (req, res) => {
   try {
-    const { estado, mesaId } = req.query;
+    const { estado, mesaId, desde, hasta } = req.query;
     let query = supabaseAdmin
       .from("pedidos")
       .select(`
@@ -141,6 +141,8 @@ export const obtenerPedidos = async (req, res) => {
 
     if (estado) query = query.eq("estado", estado);
     if (mesaId) query = query.eq("mesa_id", mesaId);
+    if (desde) query = query.gte("created_at", desde);
+    if (hasta) query = query.lte("created_at", hasta);
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
