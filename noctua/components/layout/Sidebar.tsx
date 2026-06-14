@@ -99,7 +99,7 @@ export function Sidebar() {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-3 py-6 space-y-1" role="navigation" aria-label="Navegación principal">
+        <nav className="flex-1 px-3 py-6 space-y-1 overflow-y-auto" role="navigation" aria-label="Navegación principal">
           {NAV_ITEMS.filter(({ seccion }) =>
             seccionesPermitidas.includes(seccion)
           ).map(({ seccion, icon: Icon }) => {

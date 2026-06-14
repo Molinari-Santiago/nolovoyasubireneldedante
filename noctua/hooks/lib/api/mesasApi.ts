@@ -32,9 +32,6 @@ function mapEstadoMesa(mesa: MesaBackend): EstadoMesa {
   if (mesa.estadoPedido === "LISTO") return "pedido_listo";
   if (mesa.estadoPedido === "lista_para_cobrar") return "esperando_pago";
 
-  if (mesa.disponible === true) return "libre";
-  if (mesa.disponible === false) return "problema";
-
   if (mesa.estado === "libre") return "libre";
   if (mesa.estado === "ocupada") return "ocupada";
   if (mesa.estado === "reservada") return "esperando_pedido";
@@ -42,6 +39,9 @@ function mapEstadoMesa(mesa: MesaBackend): EstadoMesa {
   if (mesa.estado === "pedido_listo") return "pedido_listo";
   if (mesa.estado === "esperando_pago") return "esperando_pago";
   if (mesa.estado === "problema") return "problema";
+
+  if (mesa.disponible === true) return "libre";
+  if (mesa.disponible === false) return "problema";
 
   return "libre";
 }

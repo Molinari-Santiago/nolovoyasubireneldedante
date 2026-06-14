@@ -124,8 +124,8 @@ export default function PedidoPage() {
   return (
     <div className="flex h-[calc(100vh-8rem)] gap-4">
       {/* ── Columna Izquierda: Categorías ── */}
-      <div className="w-40 flex-shrink-0 flex flex-col gap-2">
-        <p className="text-xs font-semibold text-[#676B67] tracking-widest uppercase px-1 mb-1">
+      <div className="w-40 flex-shrink-0 flex flex-col gap-2 overflow-y-auto pr-1">
+        <p className="text-xs font-semibold text-[#676B67] tracking-widest uppercase px-1 mb-1 flex-shrink-0">
           Categoría
         </p>
         <button

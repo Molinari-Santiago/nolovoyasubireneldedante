@@ -28,40 +28,39 @@ function mapProducto(producto: ProductoRow): Producto {
   };
 }
 
-export async function obtenerCategorias(): Promise<Categoria[]> {
-  const { data, error } = await supabase
-    .from('categorias')
-    .select('id, nombre, color')
-    .order('nombre');
+import { apiFetch } from "./client";
 
-  if (error) {
-    console.error("Error al obtener categorías de Supabase:", error);
+export async function obtenerCategorias(): Promise<Categoria[]> {
+  try {
+    const data = await apiFetch<{ categorias: Categoria[] }>("/categorias");
+    return data.categorias || [];
+  } catch (error: any) {
+    console.error("Error al obtener categorías del backend:", error);
     throw new Error(error.message);
   }
-
-  // Deduplicación por nombre ignorando mayúsculas/minúsculas
-  const unicas = new Map<string, Categoria>();
-  (data || []).forEach((cat) => {
-    const nameLower = cat.nombre.trim().toLowerCase();
-    if (!unicas.has(nameLower)) {
-      unicas.set(nameLower, cat);
-    }
-  });
-
-  return Array.from(unicas.values());
 }
 
 export async function obtenerProductos(): Promise<Producto[]> {
-  const { data, error } = await supabase
-    .from('productos')
-    .select('id, nombre, precio, categoria_id, stock, disponible, categorias(id, nombre)');
-
-  if (error) {
-    console.error("Error al obtener productos de Supabase:", error);
+  try {
+    const data = await apiFetch<{ productos: Producto[] }>("/productos");
+    return data.productos || [];
+  } catch (error: any) {
+    console.error("Error al obtener productos del backend:", error);
     throw new Error(error.message);
   }
+}
 
-  return ((data || []) as ProductoRow[]).map(mapProducto);
+export async function crearCategoria(nombre: string): Promise<Categoria> {
+  try {
+    const data = await apiFetch<{ categoria: Categoria }>("/categorias", {
+      method: "POST",
+      body: JSON.stringify({ nombre }),
+    });
+    return data.categoria;
+  } catch (error: any) {
+    console.error("Error al crear categoría a través del backend:", error);
+    throw new Error(error.message);
+  }
 }
 
 export async function crearProducto(data: {
@@ -71,45 +70,30 @@ export async function crearProducto(data: {
   stock: number;
   disponible: boolean;
 }) {
-  const { data: nuevoProducto, error } = await supabase
-    .from('productos')
-    .insert([
-      {
-        nombre: data.nombre,
-        precio: data.precio,
-        categoria_id: data.categoria_id,
-        stock: data.stock,
-        disponible: data.disponible,
-      }
-    ])
-    .select('id, nombre, precio, categoria_id, stock, disponible, categorias(id, nombre)')
-    .maybeSingle();
+  try {
+    const response = await apiFetch<{ producto: Producto }>("/productos", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
 
-  if (error) {
-    console.error("Error al crear producto en Supabase:", error);
+    return { 
+      success: true, 
+      producto: response.producto
+    };
+  } catch (error: any) {
+    console.error("Error al crear producto a través del backend:", error);
     throw new Error(error.message);
   }
-
-  if (!nuevoProducto) {
-    throw new Error("No se pudo crear el producto");
-  }
-
-  return { 
-    success: true, 
-    producto: mapProducto(nuevoProducto as ProductoRow)
-  };
 }
 
 export async function eliminarProducto(id: string) {
-  const { error } = await supabase
-    .from('productos')
-    .delete()
-    .eq('id', id);
-
-  if (error) {
-    console.error("Error al eliminar producto en Supabase:", error);
+  try {
+    await apiFetch(`/productos/${id}`, {
+      method: "DELETE",
+    });
+    return { success: true };
+  } catch (error: any) {
+    console.error("Error al eliminar producto a través del backend:", error);
     throw new Error(error.message);
   }
-
-  return { success: true };
 }
