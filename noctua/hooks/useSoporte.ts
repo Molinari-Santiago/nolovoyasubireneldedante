@@ -7,7 +7,6 @@ import {
   getMyTickets,
   getAllTickets,
   createTicket,
-  updateTicketEstado,
 } from '@/services/soporteService';
 import { toast } from '@/components/ui/Toast';
 import type {
@@ -121,11 +120,24 @@ export function useSoporte(): UseSoporteReturn {
     [usuario]
   );
 
-  /** Actualiza el estado de un ticket (solo admins) */
+  /** Actualiza el estado de un ticket (solo admins) — usa API route con service role */
   const actualizarEstado = useCallback(
     async (id: string, estado: TicketEstado, respuesta?: string): Promise<void> => {
       try {
-        await updateTicketEstado(id, estado, respuesta);
+        const res = await fetch(`/api/soporte/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            estado,
+            ...(respuesta !== undefined && { respuesta_interna: respuesta }),
+          }),
+        });
+
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          throw new Error(json.error ?? 'Error al actualizar el estado del ticket.');
+        }
+
         await fetchTickets();
         toast.success('Estado actualizado', `Ticket marcado como "${estado}".`);
       } catch (err) {
