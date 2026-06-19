@@ -17,14 +17,24 @@ function mapProducto(producto) {
 
 export const crearProducto = async (req, res) => {
   try {
-    const { nombre, descripcion, precio, categoria, categoriaId, categoria_id, imagenUrl, imagen_url } =
-      req.body;
+    const {
+      nombre,
+      descripcion,
+      precio,
+      categoria,
+      categoriaId,
+      categoria_id,
+      stock,
+      disponible,
+    } = req.body;
 
-    if (!nombre || !precio) {
+    if (!nombre || precio === undefined || precio === null) {
       return res.status(400).json({
         mensaje: "El nombre y el precio son obligatorios",
       });
     }
+
+    const stockValue = stock !== undefined ? Number(stock) : 0;
 
     const { data, error } = await supabaseAdmin
       .from("productos")
@@ -33,8 +43,9 @@ export const crearProducto = async (req, res) => {
         descripcion: descripcion || null,
         precio: Number(precio),
         categoria_id: categoria_id || categoriaId || categoria || null,
-        imagen_url: imagen_url || imagenUrl || null,
-        disponible: true,
+        disponible: disponible !== undefined ? disponible : true,
+        stock: stockValue,
+        stock_actual: stockValue,
       })
       .select()
       .single();
@@ -111,7 +122,7 @@ export const obtenerProductoPorId = async (req, res) => {
 export const actualizarProducto = async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, descripcion, precio, categoria, categoriaId, categoria_id, imagenUrl, imagen_url, disponible } =
+    const { nombre, descripcion, precio, categoria, categoriaId, categoria_id, disponible } =
       req.body;
 
     const cambios = {};
@@ -121,9 +132,11 @@ export const actualizarProducto = async (req, res) => {
     if (categoria_id !== undefined || categoriaId !== undefined || categoria !== undefined) {
       cambios.categoria_id = categoria_id || categoriaId || categoria;
     }
-    if (imagen_url !== undefined || imagenUrl !== undefined) cambios.imagen_url = imagen_url || imagenUrl;
     if (disponible !== undefined) cambios.disponible = disponible;
-    if (req.body.stock !== undefined) cambios.stock = Number(req.body.stock);
+    if (req.body.stock !== undefined) {
+      cambios.stock = Number(req.body.stock);
+      cambios.stock_actual = Number(req.body.stock);
+    }
 
     const { data, error } = await supabaseAdmin
       .from("productos")
