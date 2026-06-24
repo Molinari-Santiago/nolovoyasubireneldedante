@@ -38,14 +38,21 @@ interface StockState {
   decrementStock: (ingredientId: string) => void;
   addIngredient: (ingredient: Omit<Ingredient, 'id' | 'lastUpdated'>, precio: number, isNewCategory: boolean) => Promise<void>;
   removeIngredient: (ingredientId: string) => void;
+  updateIngredient: (ingredientId: string, updates: Partial<Ingredient>) => Promise<void>;
   getLowStockIngredients: () => Ingredient[];
   getTotalIngredients: () => number;
 
-  // BACKWARD COMPATIBILITY
+  // CATEGORIES & PRODUCTS (FOR SUPERADMIN)
   categorias: Categoria[];
   productos: Producto[];
   cargarCategorias: () => Promise<void>;
   cargarProductos: () => Promise<void>;
+  agregarCategoria: (categoria: Omit<Categoria, 'id'>) => Promise<void>;
+  actualizarCategoria: (id: string, updates: Partial<Categoria>) => Promise<void>;
+  eliminarCategoria: (id: string) => Promise<void>;
+  agregarProducto: (producto: Omit<Producto, 'id'>) => Promise<void>;
+  actualizarProducto: (id: string, updates: Partial<Producto>) => Promise<void>;
+  eliminarProducto: (id: string) => Promise<void>;
 }
 
 const slugify = (text: string): string =>
@@ -83,34 +90,58 @@ export const useStockStore = create<StockState>((set, get) => {
       try {
         const { obtenerCategorias } = await import("@/hooks/lib/api/productosApi");
         const data = await obtenerCategorias();
-        set({ categorias: data });
+        if (data.length > 0) {
+          set({ categorias: data });
+        } else {
+          set({ categorias: mockCategorias }); // Fallback si backend está vacío o inaccesible
+        }
       } catch (error) {
         console.error("Error cargando categorias:", error);
         set({ categorias: mockCategorias }); // Fallback
       }
     },
     cargarProductos: async () => {
-      try {
-        const { obtenerProductos } = await import("@/hooks/lib/api/productosApi");
-        const data = await obtenerProductos();
+    try {
+      const { obtenerProductos } = await import("@/hooks/lib/api/productosApi");
+      const data = await obtenerProductos();
+      
+      let productosParaUsar: Producto[];
+      if (data.length > 0) {
+        productosParaUsar = data;
         set({ productos: data });
-
-        const ingredients: Ingredient[] = data.map((p) => ({
-          id: p.id,
-          name: p.nombre,
-          category: p.categoria?.nombre || p.categoria_id || "Sin categoría",
-          stock: p.stock,
-          unit: "unidades",
-          minStock: 5,
-          lastUpdated: new Date(),
-        }));
-        
-        get().setIngredients(ingredients);
-      } catch (error) {
-        console.error("Error cargando productos:", error);
+      } else {
+        productosParaUsar = mockProductos;
         set({ productos: mockProductos }); // Fallback
       }
-    },
+
+      const ingredients: Ingredient[] = productosParaUsar.map((p) => ({
+        id: p.id,
+        name: p.nombre,
+        category: p.categoria?.nombre || p.categoria_id || "Sin categoría",
+        stock: p.stock ?? 0,
+        unit: "unidades",
+        minStock: 5,
+        lastUpdated: new Date(),
+      }));
+      
+      get().setIngredients(ingredients);
+    } catch (error) {
+      console.error("Error al cargar productos desde el backend:", error);
+      set({ productos: mockProductos }); // Fallback
+      
+      const ingredients: Ingredient[] = mockProductos.map((p) => ({
+        id: p.id,
+        name: p.nombre,
+        category: p.categoria?.nombre || p.categoria_id || "Sin categoría",
+        stock: p.stock ?? 0,
+        unit: "unidades",
+        minStock: 5,
+        lastUpdated: new Date(),
+      }));
+      
+      get().setIngredients(ingredients);
+    }
+  },
 
     setIngredients: (ingredients: Ingredient[]) => set((state) => {
       const categoryMap = new Map<string, StockCategory>();
@@ -213,7 +244,7 @@ export const useStockStore = create<StockState>((set, get) => {
             name: p.nombre,
             category: p.categoria?.nombre || p.categoria_id,
             subcategory: ingredient.subcategory,
-            stock: p.stock,
+            stock: p.stock ?? 0,
             unit: ingredient.unit,
             minStock: ingredient.minStock,
             lastUpdated: new Date(),
@@ -248,8 +279,65 @@ export const useStockStore = create<StockState>((set, get) => {
           });
         }
       } catch (error) {
-        console.error("Error guardando ingrediente en base de datos:", error);
-        throw error;
+        console.warn("Backend no disponible, guardando localmente:", error);
+        
+        // Fallback: generar ID local y guardar solo en el store
+        const newId = `local-${Date.now()}`;
+        const newIngredient: Ingredient = {
+          id: newId,
+          name: ingredient.name,
+          category: ingredient.category,
+          subcategory: ingredient.subcategory,
+          stock: ingredient.stock,
+          unit: ingredient.unit,
+          minStock: ingredient.minStock,
+          lastUpdated: new Date(),
+        };
+
+        const localProduct = {
+          id: newId,
+          nombre: ingredient.name,
+          precio: precio,
+          categoria_id: ingredient.category,
+          disponible: true,
+          stock: ingredient.stock,
+        };
+
+        set((state) => {
+          const categoryExists = state.categories.some(
+            (cat) => cat.name === ingredient.category
+          );
+          
+          let newCategorias = state.categorias;
+          if (!state.categorias.some(c => c.nombre === ingredient.category)) {
+            newCategorias = [...state.categorias, { id: ingredient.category, nombre: ingredient.category }];
+          }
+
+          if (categoryExists) {
+            return {
+              categorias: newCategorias,
+              productos: [...state.productos, localProduct],
+              categories: state.categories.map((cat) =>
+                cat.name === ingredient.category
+                  ? { ...cat, ingredients: [...cat.ingredients, newIngredient] }
+                  : cat
+              ),
+            };
+          } else {
+            return {
+              categorias: newCategorias,
+              productos: [...state.productos, localProduct],
+              categories: [
+                ...state.categories,
+                {
+                  id: slugify(ingredient.category),
+                  name: ingredient.category,
+                  ingredients: [newIngredient],
+                },
+              ],
+            };
+          }
+        });
       }
     },
 
@@ -264,10 +352,19 @@ export const useStockStore = create<StockState>((set, get) => {
       }));
 
       try {
+        // Check if this ingredient exists in productos (only those are from the backend)
+        const existsInProductos = get().productos.some(p => p.id === ingredientId);
+        
+        if (!ingredientId.startsWith("local-") && !existsInProductos) {
+          // It's a local or initial stock item, don't call backend
+          console.log("Ingredient not in productos, skipping backend delete");
+          return;
+        }
+
         const { eliminarProducto } = await import("@/hooks/lib/api/productosApi");
         await eliminarProducto(ingredientId);
       } catch (error) {
-        console.error("Error eliminando ingrediente en base de datos:", error);
+        console.warn("Backend no disponible, eliminación solo local:", error);
       }
     },
 
@@ -280,6 +377,220 @@ export const useStockStore = create<StockState>((set, get) => {
       return get().categories.reduce(
         (total, cat) => total + cat.ingredients.length, 0
       );
+    },
+
+    updateIngredient: async (ingredientId: string, updates: Partial<Ingredient>) => {
+      try {
+        // First update in store (optimistic)
+        set((state) => ({
+          categories: state.categories.map((cat) => ({
+            ...cat,
+            ingredients: cat.ingredients.map((ing) =>
+              ing.id === ingredientId ? { ...ing, ...updates, lastUpdated: new Date() } : ing
+            ),
+          })),
+          productos: state.productos.map(p => p.id === ingredientId ? {
+            ...p,
+            nombre: updates.name || p.nombre,
+            stock: updates.stock ?? p.stock,
+            disponible: true,
+          } : p)
+        }));
+
+        // Then try update in DB
+        const { actualizarProducto } = await import("@/hooks/lib/api/productosApi");
+        const producto = get().productos.find(p => p.id === ingredientId);
+        if (producto && !ingredientId.startsWith("local-")) {
+          await actualizarProducto(ingredientId, {
+            nombre: updates.name || producto.nombre,
+            stock: updates.stock ?? producto.stock,
+            categoria_id: producto.categoria_id,
+            precio: producto.precio,
+          });
+        }
+      } catch (error) {
+        console.warn("Backend no disponible, actualización solo local:", error);
+      }
+    },
+
+    // CATEGORIES & PRODUCTS FUNCTIONS
+    agregarCategoria: async (categoria: Omit<Categoria, 'id'>) => {
+      try {
+        const { crearCategoria } = await import("@/hooks/lib/api/productosApi");
+        const nueva = await crearCategoria(categoria.nombre);
+        set((state) => ({ categorias: [...state.categorias, nueva] }));
+      } catch (error) {
+        console.warn("Backend no disponible, guardando categoría localmente:", error);
+        // Fallback: generar ID local y guardar solo en el store
+        const newId = `local-cat-${Date.now()}`;
+        set((state) => ({
+          categorias: [...state.categorias, { id: newId, nombre: categoria.nombre }]
+        }));
+      }
+    },
+
+    actualizarCategoria: async (id: string, updates: Partial<Categoria>) => {
+      try {
+        // Optimistic update
+        set((state) => ({
+          categorias: state.categorias.map(c => c.id === id ? { ...c, ...updates } : c)
+        }));
+
+        if (!id.startsWith("local-")) {
+          const { actualizarCategoria } = await import("@/hooks/lib/api/productosApi");
+          await actualizarCategoria(id, updates);
+        }
+      } catch (error) {
+        console.warn("Backend no disponible, actualización solo local:", error);
+      }
+    },
+
+    eliminarCategoria: async (id: string) => {
+      try {
+        // Optimistic update
+        set((state) => ({
+          categorias: state.categorias.filter(c => c.id !== id)
+        }));
+
+        if (!id.startsWith("local-")) {
+          const { eliminarCategoria } = await import("@/hooks/lib/api/productosApi");
+          await eliminarCategoria(id);
+        }
+      } catch (error) {
+        console.warn("Backend no disponible, eliminación solo local:", error);
+      }
+    },
+
+    agregarProducto: async (producto: Omit<Producto, 'id'>) => {
+      try {
+        const { crearProducto } = await import("@/hooks/lib/api/productosApi");
+        const result = await crearProducto({
+          ...producto,
+          stock: producto.stock ?? 0,
+        });
+        if (result.success && result.producto) {
+          set((state) => ({ productos: [...state.productos, result.producto] }));
+
+          // Also add to ingredients
+          const newIngredient: Ingredient = {
+            id: result.producto.id,
+            name: result.producto.nombre,
+            category: get().categorias.find(c => c.id === result.producto.categoria_id)?.nombre || "Sin categoría",
+            stock: result.producto.stock || 0,
+            unit: "unidades",
+            minStock: 5,
+            lastUpdated: new Date(),
+          };
+
+          set((state) => {
+            const categoryExists = state.categories.some(c => c.name === newIngredient.category);
+            if (categoryExists) {
+              return {
+                categories: state.categories.map(c =>
+                  c.name === newIngredient.category
+                    ? { ...c, ingredients: [...c.ingredients, newIngredient] }
+                    : c
+                )
+              };
+            } else {
+              return {
+                categories: [
+                  ...state.categories,
+                  { id: slugify(newIngredient.category), name: newIngredient.category, ingredients: [newIngredient] }
+                ]
+              };
+            }
+          });
+        }
+      } catch (error) {
+        console.warn("Backend no disponible, guardando producto localmente:", error);
+        // Fallback: generar ID local y guardar solo en el store
+        const newId = `local-prod-${Date.now()}`;
+        const localProduct = { id: newId, ...producto };
+        set((state) => ({ productos: [...state.productos, localProduct] }));
+
+        // Also add to ingredients
+        const newIngredient: Ingredient = {
+          id: newId,
+          name: producto.nombre,
+          category: get().categorias.find(c => c.id === producto.categoria_id)?.nombre || "Sin categoría",
+          stock: producto.stock || 0,
+          unit: "unidades",
+          minStock: 5,
+          lastUpdated: new Date(),
+        };
+
+        set((state) => {
+          const categoryExists = state.categories.some(c => c.name === newIngredient.category);
+          if (categoryExists) {
+            return {
+              categories: state.categories.map(c =>
+                c.name === newIngredient.category
+                  ? { ...c, ingredients: [...c.ingredients, newIngredient] }
+                  : c
+              )
+            };
+          } else {
+            return {
+              categories: [
+                ...state.categories,
+                { id: slugify(newIngredient.category), name: newIngredient.category, ingredients: [newIngredient] }
+              ]
+            };
+          }
+        });
+      }
+    },
+
+    actualizarProducto: async (id: string, updates: Partial<Producto>) => {
+      try {
+        // Optimistic update
+        set((state) => ({
+          productos: state.productos.map(p => p.id === id ? { ...p, ...updates } : p)
+        }));
+
+        if (!id.startsWith("local-")) {
+          const { actualizarProducto } = await import("@/hooks/lib/api/productosApi");
+          await actualizarProducto(id, updates);
+        }
+
+        // Also update in ingredients
+        set((state) => ({
+          categories: state.categories.map((cat) => ({
+            ...cat,
+            ingredients: cat.ingredients.map((ing) =>
+              ing.id === id ? {
+                ...ing,
+                name: updates.nombre || ing.name,
+                stock: updates.stock ?? ing.stock,
+                lastUpdated: new Date()
+              } : ing
+            ),
+          })),
+        }));
+      } catch (error) {
+        console.warn("Backend no disponible, actualización solo local:", error);
+      }
+    },
+
+    eliminarProducto: async (id: string) => {
+      try {
+        // Optimistic update
+        set((state) => ({
+          productos: state.productos.filter(p => p.id !== id),
+          categories: state.categories.map((cat) => ({
+            ...cat,
+            ingredients: cat.ingredients.filter((ing) => ing.id !== id),
+          })),
+        }));
+
+        if (!id.startsWith("local-")) {
+          const { eliminarProducto } = await import("@/hooks/lib/api/productosApi");
+          await eliminarProducto(id);
+        }
+      } catch (error) {
+        console.warn("Backend no disponible, eliminación solo local:", error);
+      }
     },
   };
 });

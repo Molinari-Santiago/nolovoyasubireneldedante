@@ -162,12 +162,18 @@ export const actualizarProducto = async (req, res) => {
 export const eliminarProducto = async (req, res) => {
   try {
     const { id } = req.params;
-    const { error } = await supabaseAdmin.from("productos").delete().eq("id", id);
+    console.log("Eliminando producto con ID:", id);
+    const { data, error } = await supabaseAdmin.from("productos").delete().eq("id", id).select();
 
-    if (error) throw new Error(error.message);
+    if (error) {
+      console.error("Supabase error al eliminar producto:", error);
+      throw new Error(error.message);
+    }
+    console.log("Producto eliminado correctamente:", data);
 
     return res.json({ mensaje: "Producto eliminado correctamente" });
   } catch (error) {
+    console.error("Error al eliminar producto:", error);
     return res.status(500).json({
       mensaje: "Error al eliminar el producto",
       error: error.message,

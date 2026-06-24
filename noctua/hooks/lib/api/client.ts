@@ -13,7 +13,22 @@ export async function apiFetch<T>(
   });
 
   if (!response.ok) {
-    throw new Error(`Error en la petición: ${response.status}`);
+    let errorMessage = `Error en la petición: ${response.status}`;
+    try {
+      const errorData = await response.json();
+      if (errorData.error) {
+        errorMessage += ` - ${errorData.error}`;
+      } else if (errorData.mensaje) {
+        errorMessage += ` - ${errorData.mensaje}`;
+      }
+    } catch {
+      // If we can't parse JSON, just use text
+      try {
+        const text = await response.text();
+        if (text) errorMessage += ` - ${text}`;
+      } catch {}
+    }
+    throw new Error(errorMessage);
   }
 
   return response.json();

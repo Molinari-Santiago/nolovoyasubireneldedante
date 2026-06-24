@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useStockStore } from '@/store/stockStore';
+import { useSuperAdmStore } from '@/store/superadmStore';
 import { StockHeader } from '@/components/stock/StockHeader';
 import { StockFilters } from '@/components/stock/StockFilters';
 import { CategoryAccordion } from '@/components/stock/CategoryAccordion';
@@ -20,6 +21,11 @@ export default function StockPage() {
     selectedCategory,
     cargarProductos,
   } = useStockStore();
+  const { config, initializeConfig } = useSuperAdmStore();
+  
+  useEffect(() => {
+    initializeConfig();
+  }, [initializeConfig]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -57,13 +63,19 @@ export default function StockPage() {
     }).filter(category => category.ingredients.length > 0);
   }, [categories, filter, searchQuery, selectedCategory]);
 
+  const texts = config.theme.dashboardTexts?.stock || { title: 'Stock', subtitle: 'Gestiona el inventario de ingredientes' };
+
   return (
     <div className="space-y-6">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>{texts.title}</h1>
+        <p style={{ color: 'var(--color-text-secondary)' }} className="text-sm">{texts.subtitle}</p>
+      </div>
       <StockHeader onOpenModal={() => setIsModalOpen(true)} />
       <StockFilters categories={categories} />
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-20 text-[#676B67]">
+        <div className="flex items-center justify-center py-20" style={{ color: 'var(--color-text-secondary)' }}>
           <svg className="animate-spin w-6 h-6 mr-3" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
@@ -80,7 +92,7 @@ export default function StockPage() {
               className="space-y-4"
             >
               {filteredAndGroupedIngredients.length === 0 ? (
-                <div className="text-center py-16 text-[#676B67] text-sm">
+                <div className="text-center py-16" style={{ color: 'var(--color-text-secondary)' }} className="text-sm">
                   No se encontraron productos.
                 </div>
               ) : (
@@ -98,24 +110,25 @@ export default function StockPage() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl overflow-hidden"
+              style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-surface)' }}
+              className="border border-[#1a1a1a] rounded-xl overflow-hidden"
             >
               <table className="w-full">
-                <thead className="bg-[#111]">
+                <thead style={{ backgroundColor: 'var(--color-surface)' }}>
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-widest uppercase text-[#676B67]">
+                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-widest uppercase" style={{ color: 'var(--color-text-secondary)' }}>
                       Ingrediente
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-widest uppercase text-[#676B67]">
+                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-widest uppercase" style={{ color: 'var(--color-text-secondary)' }}>
                       Categoría
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-widest uppercase text-[#676B67]">
+                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-widest uppercase" style={{ color: 'var(--color-text-secondary)' }}>
                       Stock
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-widest uppercase text-[#676B67]">
+                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-widest uppercase" style={{ color: 'var(--color-text-secondary)' }}>
                       Estado
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-widest uppercase text-[#676B67]">
+                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-widest uppercase" style={{ color: 'var(--color-text-secondary)' }}>
                       Última actualización
                     </th>
                   </tr>
@@ -123,7 +136,7 @@ export default function StockPage() {
                 <tbody>
                   {filteredAndGroupedIngredients.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-4 py-16 text-center text-sm text-[#676B67]">
+                      <td colSpan={5} className="px-4 py-16 text-center text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                         No se encontraron productos.
                       </td>
                     </tr>

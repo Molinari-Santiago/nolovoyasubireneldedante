@@ -4,10 +4,11 @@ import { useEffect, useState, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, Users, Archive, CheckCircle, ChefHat, Play } from 'lucide-react';
 import { usePedidosStore } from '@/store/pedidosStore';
+import { useSuperAdmStore } from '@/store/superadmStore';
 import { cocinaService } from '@/services/cocinaService';
-import { COLORES_BORDE_COCINA, TEXTO_ESTADO_COCINA, KDS_TIMER_GREEN_MINUTES, KDS_TIMER_YELLOW_MINUTES } from '@/hooks/lib/constants';
+import { KDS_TIMER_GREEN_MINUTES, KDS_TIMER_YELLOW_MINUTES } from '@/hooks/lib/constants';
 import { elapsedMinutes, formatElapsed, cn } from '@/hooks/lib/utils';
-import type { Pedido, EstadoCocina } from '@/types/pedido';
+import type { Pedido } from '@/types/pedido';
 
 // ── KDS Timer ──────────────────────────────────────────────────────────────────
 
@@ -44,9 +45,7 @@ function KDSTimer({ creadoEn }: { creadoEn: Date }) {
 
 // ── KDS Card ──────────────────────────────────────────────────────────────────
 
-const ESTADOS_DISPONIBLES: EstadoCocina[] = ['pendiente', 'preparando', 'listo', 'entregado'];
-
-const ICONOS_ESTADO: Record<EstadoCocina, any> = {
+const ICONOS_ESTADO: Record<string, any> = {
   pendiente: Play,
   preparando: ChefHat,
   listo: CheckCircle,
@@ -55,13 +54,15 @@ const ICONOS_ESTADO: Record<EstadoCocina, any> = {
 
 const PedidoKDSCard = memo(function PedidoKDSCard({
   pedido,
+  statuses,
   onCambiarEstado,
 }: {
   pedido: Pedido;
-  onCambiarEstado: (id: string, nuevoEstado: EstadoCocina) => void;
+  statuses: any[];
+  onCambiarEstado: (id: string, nuevoEstado: string) => void;
 }) {
-  const borderColor = COLORES_BORDE_COCINA[pedido.estado];
-
+  const currentStatus = statuses.find(s => s.name.toLowerCase() === pedido.estado);
+  
   return (
     <motion.div
       layout
@@ -71,8 +72,9 @@ const PedidoKDSCard = memo(function PedidoKDSCard({
       transition={{ type: 'spring', stiffness: 350, damping: 30 }}
       className={cn(
         'bg-[#0d0d0d] border-2 rounded-xl p-4 space-y-3',
-        borderColor
+        currentStatus ? `border-[${currentStatus.bgColor}]` : 'border-gray-500'
       )}
+      style={{ borderColor: currentStatus?.bgColor }}
       aria-live="polite"
     >
       {/* Header */}
@@ -118,14 +120,17 @@ const PedidoKDSCard = memo(function PedidoKDSCard({
         </label>
         <select
           value={pedido.estado}
-          onChange={(e) => onCambiarEstado(pedido.id, e.target.value as EstadoCocina)}
+          onChange={(e) => onCambiarEstado(pedido.id, e.target.value)}
           className="w-full bg-[#111] border border-[#2a2a2a] text-white rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:border-white transition-colors"
         >
-          {ESTADOS_DISPONIBLES.map((estado) => (
-            <option key={estado} value={estado}>
-              {TEXTO_ESTADO_COCINA[estado]}
-            </option>
-          ))}
+          {statuses.map((status) => {
+            const estadoKey = status.name.toLowerCase();
+            return (
+              <option key={status.id} value={estadoKey}>
+                {status.name}
+              </option>
+            );
+          })}
         </select>
       </div>
     </motion.div>
@@ -134,29 +139,24 @@ const PedidoKDSCard = memo(function PedidoKDSCard({
 
 // ── KDS Column ────────────────────────────────────────────────────────────────
 
-const ESTADOS_KDS: EstadoCocina[] = ['pendiente', 'preparando', 'listo', 'entregado'];
-
-const HEADER_COLORS: Record<EstadoCocina, string> = {
-  pendiente: 'bg-gray-600 text-white',
-  preparando: 'bg-red-500 text-white',
-  listo: 'bg-yellow-400 text-black',
-  entregado: 'bg-green-500 text-black',
-};
-
 const KDSColumn = memo(function KDSColumn({
-  estado,
+  status,
   pedidos,
   onCambiarEstado,
 }: {
-  estado: EstadoCocina;
+  status: any;
   pedidos: Pedido[];
-  onCambiarEstado: (id: string, nuevoEstado: EstadoCocina) => void;
+  onCambiarEstado: (id: string, nuevoEstado: string) => void;
 }) {
+  const estadoKey = status.name.toLowerCase();
   return (
     <div className="flex flex-col bg-[#060606] border border-[#111] rounded-xl overflow-hidden">
-      <div className={cn('px-4 py-3 flex items-center justify-between', HEADER_COLORS[estado])}>
+      <div 
+        className="px-4 py-3 flex items-center justify-between"
+        style={{ backgroundColor: status.bgColor, color: status.color }}
+      >
         <span className="font-display text-xl tracking-widest font-black uppercase">
-          {TEXTO_ESTADO_COCINA[estado]}
+          {status.name}
         </span>
         <span className="text-sm font-black opacity-80">{pedidos.length}</span>
       </div>
@@ -173,7 +173,12 @@ const KDSColumn = memo(function KDSColumn({
             </motion.div>
           ) : (
             pedidos.map((pedido) => (
-              <PedidoKDSCard key={pedido.id} pedido={pedido} onCambiarEstado={onCambiarEstado} />
+              <PedidoKDSCard 
+                key={pedido.id} 
+                pedido={pedido}
+                statuses={[status]}
+                onCambiarEstado={onCambiarEstado} 
+              />
             ))
           )}
         </AnimatePresence>
@@ -187,26 +192,30 @@ const KDSColumn = memo(function KDSColumn({
 export default function CocinaPage() {
   const pedidos = usePedidosStore((s) => s.pedidos);
   const cargarPedidos = usePedidosStore((s) => s.cargarPedidos);
+  const { config, initializeConfig } = useSuperAdmStore();
 
   useEffect(() => {
+    initializeConfig();
     cargarPedidos();
-  }, [cargarPedidos]);
+  }, [cargarPedidos, initializeConfig]);
 
-  const handleCambiarEstado = async (pedidoId: string, nuevoEstado: EstadoCocina) => {
-    await cocinaService.cambiarEstadoLibre(pedidoId, nuevoEstado);
+  const handleCambiarEstado = async (pedidoId: string, nuevoEstado: string) => {
+    await cocinaService.cambiarEstadoLibre(pedidoId, nuevoEstado as any);
   };
 
-  const getPedidosPorEstado = (estado: EstadoCocina) =>
-    pedidos.filter((p) => p.estado === estado);
+  const getPedidosPorEstado = (estadoName: string) =>
+    pedidos.filter((p) => p.estado === estadoName.toLowerCase());
+
+  const sortedStatuses = [...config.kitchenStatuses].sort((a, b) => a.order - b.order);
 
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col gap-4">
       <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 overflow-hidden">
-        {ESTADOS_KDS.map((estado) => (
+        {sortedStatuses.map((status) => (
           <KDSColumn
-            key={estado}
-            estado={estado}
-            pedidos={getPedidosPorEstado(estado)}
+            key={status.id}
+            status={status}
+            pedidos={getPedidosPorEstado(status.name)}
             onCambiarEstado={handleCambiarEstado}
           />
         ))}

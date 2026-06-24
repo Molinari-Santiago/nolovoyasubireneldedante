@@ -36,7 +36,7 @@ export async function obtenerCategorias(): Promise<Categoria[]> {
     return data.categorias || [];
   } catch (error: any) {
     console.error("Error al obtener categorías del backend:", error);
-    throw new Error(error.message);
+    return [];
   }
 }
 
@@ -46,7 +46,7 @@ export async function obtenerProductos(): Promise<Producto[]> {
     return data.productos || [];
   } catch (error: any) {
     console.error("Error al obtener productos del backend:", error);
-    throw new Error(error.message);
+    return [];
   }
 }
 
@@ -94,6 +94,44 @@ export async function eliminarProducto(id: string) {
     return { success: true };
   } catch (error: any) {
     console.error("Error al eliminar producto a través del backend:", error);
+    throw new Error(error.message);
+  }
+}
+
+export async function actualizarCategoria(id: string, updates: Partial<Categoria>) {
+  try {
+    const data = await apiFetch<{ categoria: Categoria }>(`/categorias/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(updates),
+    });
+    return data.categoria;
+  } catch (error: any) {
+    console.error("Error al actualizar categoría a través del backend:", error);
+    throw new Error(error.message);
+  }
+}
+
+export async function eliminarCategoria(id: string) {
+  try {
+    await apiFetch(`/categorias/${id}`, {
+      method: "DELETE",
+    });
+    return { success: true };
+  } catch (error: any) {
+    console.error("Error al eliminar categoría a través del backend:", error);
+    throw new Error(error.message);
+  }
+}
+
+export async function actualizarProducto(id: string, updates: Partial<Producto>) {
+  try {
+    const data = await apiFetch<{ producto: Producto }>(`/productos/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(updates),
+    });
+    return data.producto;
+  } catch (error: any) {
+    console.error("Error al actualizar producto a través del backend:", error);
     throw new Error(error.message);
   }
 }
