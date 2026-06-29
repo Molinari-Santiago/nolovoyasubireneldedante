@@ -6,9 +6,9 @@ function mapProducto(producto) {
     nombre: producto.nombre,
     descripcion: producto.descripcion,
     precio: Number(producto.precio || 0),
-    categoria: producto.categoria || producto.categoria_id,
-    categoriaId: producto.categoria_id,
-    imagenUrl: producto.imagen_url,
+    categoria: producto.categorias || producto.categoria || { id: producto.categoria_id, nombre: "Sin categoría" },
+    categoria_id: producto.categoria_id,
+    imagen_url: producto.imagen_url,
     disponible: producto.disponible,
     stock: Number(producto.stock_actual ?? producto.stock ?? 0),
     createdAt: producto.created_at,
@@ -17,14 +17,24 @@ function mapProducto(producto) {
 
 export const crearProducto = async (req, res) => {
   try {
-    const { nombre, descripcion, precio, categoria, categoriaId, imagenUrl } =
-      req.body;
+    const {
+      nombre,
+      descripcion,
+      precio,
+      categoria,
+      categoriaId,
+      categoria_id,
+      stock,
+      disponible,
+    } = req.body;
 
-    if (!nombre || !precio) {
+    if (!nombre || precio === undefined || precio === null) {
       return res.status(400).json({
         mensaje: "El nombre y el precio son obligatorios",
       });
     }
+
+    const stockValue = stock !== undefined ? Number(stock) : 0;
 
     const { data, error } = await supabaseAdmin
       .from("productos")
@@ -32,9 +42,10 @@ export const crearProducto = async (req, res) => {
         nombre,
         descripcion: descripcion || null,
         precio: Number(precio),
-        categoria_id: categoriaId || categoria || null,
-        imagen_url: imagenUrl || null,
-        disponible: true,
+        categoria_id: categoria_id || categoriaId || categoria || null,
+        disponible: disponible !== undefined ? disponible : true,
+        stock: stockValue,
+        stock_actual: stockValue,
       })
       .select()
       .single();
@@ -58,8 +69,8 @@ export const obtenerProductos = async (req, res) => {
     const { categoria, disponible } = req.query;
     let query = supabaseAdmin
       .from("productos")
-      .select("*")
-      .order("created_at", { ascending: false });
+      .select("*, categorias(id, nombre)")
+      .order("creado_en", { ascending: false });
 
     if (categoria) query = query.eq("categoria_id", categoria);
     if (disponible === "true") query = query.eq("disponible", true);
@@ -111,18 +122,21 @@ export const obtenerProductoPorId = async (req, res) => {
 export const actualizarProducto = async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, descripcion, precio, categoria, categoriaId, imagenUrl, disponible } =
+    const { nombre, descripcion, precio, categoria, categoriaId, categoria_id, disponible } =
       req.body;
 
     const cambios = {};
     if (nombre !== undefined) cambios.nombre = nombre;
     if (descripcion !== undefined) cambios.descripcion = descripcion;
     if (precio !== undefined) cambios.precio = Number(precio);
-    if (categoriaId !== undefined || categoria !== undefined) {
-      cambios.categoria_id = categoriaId || categoria;
+    if (categoria_id !== undefined || categoriaId !== undefined || categoria !== undefined) {
+      cambios.categoria_id = categoria_id || categoriaId || categoria;
     }
-    if (imagenUrl !== undefined) cambios.imagen_url = imagenUrl;
     if (disponible !== undefined) cambios.disponible = disponible;
+    if (req.body.stock !== undefined) {
+      cambios.stock = Number(req.body.stock);
+      cambios.stock_actual = Number(req.body.stock);
+    }
 
     const { data, error } = await supabaseAdmin
       .from("productos")
@@ -148,12 +162,18 @@ export const actualizarProducto = async (req, res) => {
 export const eliminarProducto = async (req, res) => {
   try {
     const { id } = req.params;
-    const { error } = await supabaseAdmin.from("productos").delete().eq("id", id);
+    console.log("Eliminando producto con ID:", id);
+    const { data, error } = await supabaseAdmin.from("productos").delete().eq("id", id).select();
 
-    if (error) throw new Error(error.message);
+    if (error) {
+      console.error("Supabase error al eliminar producto:", error);
+      throw new Error(error.message);
+    }
+    console.log("Producto eliminado correctamente:", data);
 
     return res.json({ mensaje: "Producto eliminado correctamente" });
   } catch (error) {
+    console.error("Error al eliminar producto:", error);
     return res.status(500).json({
       mensaje: "Error al eliminar el producto",
       error: error.message,

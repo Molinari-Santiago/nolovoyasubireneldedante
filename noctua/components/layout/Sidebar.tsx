@@ -17,6 +17,7 @@ import {
   Receipt,
   ShieldCheck,
   Truck,
+  Headphones,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
@@ -29,16 +30,17 @@ import {
 } from '@/config/roles';
 
 const NAV_ITEMS = [
-  { seccion: 'analytics', icon: LayoutDashboard },
-  { seccion: 'mesas', icon: UtensilsCrossed },
-  { seccion: 'pedidos', icon: ClipboardList },
-  { seccion: 'cocina', icon: ChefHat },
-  { seccion: 'cajero', icon: Receipt },
-  { seccion: 'historial', icon: History },
-  { seccion: 'stock', icon: Package },
-  { seccion: 'delivery', icon: Truck },
-  { seccion: 'reservas', icon: CalendarDays },
+  { seccion: 'analytics',      icon: LayoutDashboard },
+  { seccion: 'mesas',          icon: UtensilsCrossed },
+  { seccion: 'pedidos',        icon: ClipboardList },
+  { seccion: 'cocina',         icon: ChefHat },
+  { seccion: 'cajero',         icon: Receipt },
+  { seccion: 'historial',      icon: History },
+  { seccion: 'stock',          icon: Package },
+  { seccion: 'delivery',       icon: Truck },
+  { seccion: 'reservas',       icon: CalendarDays },
   { seccion: 'administracion', icon: ShieldCheck },
+  { seccion: 'soporte',        icon: Headphones },
 ] satisfies {
   seccion: SeccionSistema;
   icon: typeof UtensilsCrossed;
@@ -97,7 +99,7 @@ export function Sidebar() {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-3 py-6 space-y-1" role="navigation" aria-label="Navegación principal">
+        <nav className="flex-1 px-3 py-6 space-y-1 overflow-y-auto" role="navigation" aria-label="Navegación principal">
           {NAV_ITEMS.filter(({ seccion }) =>
             seccionesPermitidas.includes(seccion)
           ).map(({ seccion, icon: Icon }) => {

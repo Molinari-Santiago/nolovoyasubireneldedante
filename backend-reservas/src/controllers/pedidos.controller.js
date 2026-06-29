@@ -85,8 +85,10 @@ export const abrirPedido = async (req, res) => {
       .maybeSingle();
 
     if (pedidoAbierto) {
-      return res.status(400).json({
-        mensaje: "Esta mesa ya tiene un pedido abierto",
+      const pedido = await obtenerPedidoCompleto(pedidoAbierto.id);
+      return res.status(200).json({
+        mensaje: "Pedido abierto existente recuperado",
+        pedido: mapPedido(pedido),
       });
     }
 
@@ -126,7 +128,7 @@ export const abrirPedido = async (req, res) => {
 
 export const obtenerPedidos = async (req, res) => {
   try {
-    const { estado, mesaId } = req.query;
+    const { estado, mesaId, desde, hasta } = req.query;
     let query = supabaseAdmin
       .from("pedidos")
       .select(`
@@ -141,6 +143,8 @@ export const obtenerPedidos = async (req, res) => {
 
     if (estado) query = query.eq("estado", estado);
     if (mesaId) query = query.eq("mesa_id", mesaId);
+    if (desde) query = query.gte("created_at", desde);
+    if (hasta) query = query.lte("created_at", hasta);
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
@@ -196,7 +200,8 @@ export const agregarProductoAlPedido = async (req, res) => {
       .single();
 
     if (productoError || !producto) {
-      return res.status(404).json({ mensaje: "Producto no encontrado" });
+      console.error("Error buscando producto con ID:", productoId, "Error:", productoError);
+      return res.status(404).json({ mensaje: "Producto no encontrado", error: productoError?.message, idBuscado: productoId });
     }
 
     const precioUnitario = Number(producto.precio || 0);

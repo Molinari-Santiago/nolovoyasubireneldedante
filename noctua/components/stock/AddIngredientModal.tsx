@@ -31,9 +31,11 @@ export const AddIngredientModal = ({ isOpen, onClose, categories }: AddIngredien
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [quantity, setQuantity] = useState(20);
+  const [price, setPrice] = useState(0);
   const [unit, setUnit] = useState<"unidades" | "kg" | "litros">("unidades");
-  const [errors, setErrors] = useState<{ name?: string; category?: string; quantity?: string }>({});
+  const [errors, setErrors] = useState<{ name?: string; category?: string; quantity?: string; price?: string }>({});
   const [duplicateWarning, setDuplicateWarning] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const addIngredientStore = useStockStore((s) => s.addIngredient);
 
@@ -51,9 +53,11 @@ export const AddIngredientModal = ({ isOpen, onClose, categories }: AddIngredien
       setIsCreatingCategory(false);
       setNewCategoryName("");
       setQuantity(20);
+      setPrice(0);
       setUnit("unidades");
       setErrors({});
       setDuplicateWarning(false);
+      setIsSubmitting(false);
     }
   }, [isOpen, categories]);
 
@@ -81,6 +85,11 @@ export const AddIngredientModal = ({ isOpen, onClose, categories }: AddIngredien
       isValid = false;
     }
 
+    if (price < 0) {
+      newErrors.price = "El precio no puede ser negativo";
+      isValid = false;
+    }
+
     // Check for duplicates
     if (isValid) {
       const selectedCategoryObj = categories.find((c) => c.name === selectedCatName);
@@ -105,31 +114,39 @@ export const AddIngredientModal = ({ isOpen, onClose, categories }: AddIngredien
     if (!selectedCatName.trim()) return false;
     
     if (quantity < 0 || quantity > 9999) return false;
+    if (price < 0) return false;
     
     return true;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!validateForm()) return;
 
-    const finalCategory = isCreatingCategory ? newCategoryName.trim() : category;
-    const minStock = unit === "unidades" ? 5 : 2;
+    setIsSubmitting(true);
+    try {
+      const finalCategory = isCreatingCategory ? newCategoryName.trim() : category;
+      const minStock = unit === "unidades" ? 5 : 2;
 
-    const newIngredient: Omit<Ingredient, "id" | "lastUpdated"> = {
-      name: name.trim(),
-      category: finalCategory,
-      subcategory: subcategory,
-      stock: quantity,
-      unit: unit,
-      minStock: minStock,
-    };
+      const newIngredient: Omit<Ingredient, "id" | "lastUpdated"> = {
+        name: name.trim(),
+        category: finalCategory,
+        subcategory: subcategory,
+        stock: quantity,
+        unit: unit,
+        minStock: minStock,
+      };
 
-    addIngredientStore(newIngredient);
+      await addIngredientStore(newIngredient, price, isCreatingCategory);
 
-    toast.success('Ingrediente añadido', `${newIngredient.name} añadido al stock`);
-    onClose();
+      toast.success('Producto añadido', `${newIngredient.name} añadido al inventario`);
+      onClose();
+    } catch (error) {
+      toast.error('Error', 'No se pudo guardar el producto en la base de datos.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -236,43 +253,33 @@ export const AddIngredientModal = ({ isOpen, onClose, categories }: AddIngredien
               </div>
 
               {/* Quantity and Unit */}
-              <div>
-                <label className="block text-xs font-semibold tracking-widest uppercase text-[#676b67] mb-1.5">
-                  Cantidad y unidad
-                </label>
-                <div className="space-y-3">
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      value={quantity}
-                      onChange={(e) => setQuantity(parseFloat(e.target.value) || 0)}
-                      step={unit === "unidades" ? 1 : 0.5}
-                      min={0}
-                      max={9999}
-                      className="flex-1 bg-[#111] border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-white transition-colors"
-                    />
-                    <div className="flex items-center gap-1 p-1 bg-[#111] border border-[#2a2a2a] rounded-xl">
-                      {(["unidades", "kg", "litros"] as const).map((u) => (
-                        <button
-                          key={u}
-                          type="button"
-                          onClick={() => setUnit(u)}
-                          className={cn(
-                            "px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors",
-                            unit === u
-                              ? "bg-white text-black"
-                              : "text-[#676b67] hover:text-white"
-                          )}
-                        >
-                          {u === "unidades" ? "🔢 Unidades" : u === "kg" ? "⚖ kg" : "🥛 L"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <p className="text-xs text-[#676b67]">
-                    Ej: {unit === "unidades" ? "12 unidades" : `2.5 ${unit}`}
-                  </p>
-                  {errors.quantity && <p className="text-red-400 text-xs">{errors.quantity}</p>}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold tracking-widest uppercase text-[#676b67] mb-1.5">
+                    Stock actual
+                  </label>
+                  <input
+                    type="number"
+                    value={quantity}
+                    onChange={(e) => setQuantity(parseFloat(e.target.value) || 0)}
+                    min={0}
+                    max={9999}
+                    className="w-full bg-[#111] border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-white transition-colors"
+                  />
+                  {errors.quantity && <p className="text-red-400 text-xs mt-1">{errors.quantity}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold tracking-widest uppercase text-[#676b67] mb-1.5">
+                    Precio de venta ($)
+                  </label>
+                  <input
+                    type="number"
+                    value={price}
+                    onChange={(e) => setPrice(parseFloat(e.target.value) || 0)}
+                    min={0}
+                    className="w-full bg-[#111] border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-white transition-colors"
+                  />
+                  {errors.price && <p className="text-red-400 text-xs mt-1">{errors.price}</p>}
                 </div>
               </div>
 
@@ -287,11 +294,11 @@ export const AddIngredientModal = ({ isOpen, onClose, categories }: AddIngredien
                 </button>
                 <button
                   type="submit"
-                  disabled={!isFormValid() && !duplicateWarning}
+                  disabled={(!isFormValid() && !duplicateWarning) || isSubmitting}
                   className="flex-1 py-2.5 rounded-xl bg-white text-black text-sm font-bold hover:bg-[#e5e5e5] disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
                 >
                   <Check size={16} />
-                  Guardar producto
+                  {isSubmitting ? "Guardando..." : "Guardar producto"}
                 </button>
               </div>
             </form>

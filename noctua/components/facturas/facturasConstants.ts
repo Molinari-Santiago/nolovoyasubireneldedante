@@ -1,4 +1,4 @@
-import { Banknote, CreditCard, Wallet } from 'lucide-react';
+import { Banknote, CreditCard, HandCoins, Wallet } from 'lucide-react';
 import type { MetodoPagoFactura, TipoComprobante } from '@/services/facturasService';
 
 export const TIPOS_COMPROBANTE: {
@@ -17,13 +17,14 @@ export const METODOS_PAGO: {
 }[] = [
   { value: 'efectivo', label: 'Efectivo', icon: Banknote },
   { value: 'billetera_virtual', label: 'Billetera virtual', icon: Wallet },
-  { value: 'debito', label: 'Tarjeta débito', icon: CreditCard },
-  { value: 'credito', label: 'Tarjeta crédito', icon: CreditCard },
+  { value: 'debito', label: 'Tarjeta debito', icon: CreditCard },
+  { value: 'credito', label: 'Tarjeta credito', icon: CreditCard },
+  { value: 'cuenta_corriente', label: 'Cuenta corriente', icon: HandCoins },
 ];
 
 export const BILLETERAS = [
   'Mercado Pago',
-  'Ualá',
+  'Uala',
   'Cuenta DNI',
   'Naranja X',
   'Modo',

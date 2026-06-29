@@ -1,17 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
-import dotenv from "dotenv";
+import { env } from "./env.js";
 
-dotenv.config({ path: ".env.local" });
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl) {
-  throw new Error("Falta SUPABASE_URL en el archivo .env");
-}
-
-if (!supabaseServiceRoleKey) {
-  throw new Error("Falta SUPABASE_SERVICE_ROLE_KEY en el archivo .env");
-}
-
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
+export const supabaseAdmin = createClient(
+  env.supabaseUrl,
+  env.supabaseServiceRoleKey
+);
