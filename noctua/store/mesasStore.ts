@@ -44,6 +44,10 @@ interface MesasState {
   asignarPedido: (mesaId: string, pedidoId: string) => void;
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export const useMesasStore = create<MesasState>((set) => ({
   mesas: [],
   mesaSeleccionada: null,
@@ -57,20 +61,16 @@ export const useMesasStore = create<MesasState>((set) => ({
 
       const mesas = await obtenerMesas();
 
-      set({
-        mesas,
-        isLoading: false,
-      });
+      set({ mesas });
     } catch (error) {
-      console.error("Error cargando mesas:", error);
-
       set({
-        isLoading: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "No se pudieron cargar las mesas desde el backend",
+        error: getErrorMessage(
+          error,
+          "No se pudieron cargar las mesas desde el backend"
+        ),
       });
+    } finally {
+      set({ isLoading: false });
     }
   },
 
@@ -82,20 +82,13 @@ export const useMesasStore = create<MesasState>((set) => ({
 
       const mesas = await obtenerMesas();
 
-      set({
-        mesas,
-        isLoading: false,
-      });
+      set({ mesas });
     } catch (error) {
-      console.error("Error creando mesa:", error);
-
       set({
-        isLoading: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "No se pudo crear la mesa",
+        error: getErrorMessage(error, "No se pudo crear la mesa"),
       });
+    } finally {
+      set({ isLoading: false });
     }
   },
 
@@ -109,20 +102,15 @@ export const useMesasStore = create<MesasState>((set) => ({
 
       set({
         mesas,
-        isLoading: false,
         mesaSeleccionada: null,
         mesasSeleccionadas: [],
       });
     } catch (error) {
-      console.error("Error eliminando mesa:", error);
-
       set({
-        isLoading: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "No se pudo eliminar la mesa",
+        error: getErrorMessage(error, "No se pudo eliminar la mesa"),
       });
+    } finally {
+      set({ isLoading: false });
     }
   },
 
@@ -197,20 +185,16 @@ export const useMesasStore = create<MesasState>((set) => ({
 
       const mesas = await obtenerMesas();
 
-      set({
-        mesas,
-        isLoading: false,
-      });
+      set({ mesas });
     } catch (error) {
-      console.error("Error cambiando estado de mesa:", error);
-
       set({
-        isLoading: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "No se pudo cambiar el estado de la mesa",
+        error: getErrorMessage(
+          error,
+          "No se pudo cambiar el estado de la mesa"
+        ),
       });
+    } finally {
+      set({ isLoading: false });
     }
   },
 
@@ -224,13 +208,11 @@ export const useMesasStore = create<MesasState>((set) => ({
     try {
       await actualizarMesa(id, { posicion });
     } catch (error) {
-      console.error("Error moviendo mesa:", error);
-
       set({
-        error:
-          error instanceof Error
-            ? error.message
-            : "No se pudo guardar la posicion de la mesa",
+        error: getErrorMessage(
+          error,
+          "No se pudo guardar la posicion de la mesa"
+        ),
       });
     }
   },

@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/store/authStore';
+
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
@@ -5,9 +7,28 @@ export type MetodoPagoFactura =
   | 'efectivo'
   | 'billetera_virtual'
   | 'debito'
-  | 'credito';
+  | 'credito'
+  | 'cuenta_corriente';
 
 export type TipoComprobante = 1 | 6 | 11;
+
+export type ClienteFactura = {
+  id: string;
+  nombre: string;
+  documento?: string | null;
+  condicionFiscal?: string | null;
+  email?: string | null;
+  telefono?: string | null;
+};
+
+export type ClienteFacturaInput = {
+  clienteId?: string;
+  nombre?: string;
+  documento?: string;
+  condicionFiscal?: string;
+  email?: string;
+  telefono?: string;
+};
 
 export type PedidoFacturaItem = {
   id: string;
@@ -44,12 +65,15 @@ export type Factura = {
   pedidoId: string;
   pagoId: string;
   mesaId: string;
+  clienteId?: string | null;
   numeroComprobante: string;
   tipoComprobante: number;
   metodoPago: MetodoPagoFactura;
   subtotal: number;
   impuestos: number;
+  descuento?: number;
   total: number;
+  saldoPendiente?: number;
   estado: string;
   cae?: string | null;
   vencimientoCae?: string | null;
@@ -57,12 +81,14 @@ export type Factura = {
   arcaEstado?: string | null;
   arcaError?: string | null;
   creadoEn?: string;
+  cliente?: ClienteFactura | null;
 };
 
 export type Pago = {
   id: string;
   pedidoId: string;
   mesaId: string;
+  clienteId?: string | null;
   metodoPago: MetodoPagoFactura;
   tipoComprobante: number;
   monto: number;
@@ -71,6 +97,70 @@ export type Pago = {
   recibidoPor?: string | null;
   montoRecibido?: number;
   vuelto?: number;
+};
+
+export type MovimientoCuentaCorriente = {
+  id: string;
+  cuentaCorrienteId: string;
+  clienteId: string;
+  tipo: 'DEBIT' | 'CREDIT';
+  origen: 'INVOICE' | 'PAYMENT' | 'CREDIT_NOTE' | 'REVERSAL' | 'MANUAL_ADJUSTMENT';
+  importe: number;
+  moneda: string;
+  fecha: string;
+  descripcion: string;
+  facturaId?: string | null;
+  pagoCuentaCorrienteId?: string | null;
+  movimientoRevertidoId?: string | null;
+  creadoPor?: string | null;
+  creadoEn?: string;
+};
+
+export type CuentaCorrienteResumen = {
+  cuentaCorrienteId: string;
+  cliente: ClienteFactura;
+  estado: string;
+  saldo: number;
+  cantidadFacturasPendientes: number;
+  deudaVencida: number;
+  ultimoMovimiento?: MovimientoCuentaCorriente | null;
+  creadoEn?: string;
+  actualizadoEn?: string;
+};
+
+export type FacturaPendienteCuenta = {
+  id: string;
+  numeroComprobante?: string | null;
+  tipoComprobante?: number | null;
+  estado: string;
+  total: number;
+  saldoPendiente: number;
+  creadoEn?: string;
+};
+
+export type CuentaCorrienteDetalle = {
+  cuenta: {
+    id: string;
+    estado: string;
+    creadoEn?: string;
+    actualizadoEn?: string;
+  };
+  cliente: ClienteFactura;
+  saldo: number;
+  totalDebitado: number;
+  totalAcreditado: number;
+  facturasPendientes: FacturaPendienteCuenta[];
+  movimientos: MovimientoCuentaCorriente[];
+};
+
+export type FacturasFiltros = {
+  desde?: string;
+  hasta?: string;
+  cliente?: string;
+  clienteId?: string;
+  estado?: string;
+  tipoComprobante?: string;
+  metodoPago?: string;
 };
 
 export type CobrarPedidoPayload = {
@@ -85,12 +175,33 @@ export type CobrarPedidoPayload = {
   recibidoPor?: string;
   montoRecibido?: number;
   vuelto?: number;
+  cliente?: ClienteFacturaInput;
+  idempotencyKey?: string;
 };
 
 type ApiRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is ApiRecord {
   return typeof value === 'object' && value !== null;
+}
+
+function getAuthHeaders() {
+  const usuario = useAuthStore.getState().usuario;
+  if (!usuario) return {};
+
+  return {
+    'X-Noctua-Role': usuario.rol,
+    'X-Noctua-User': usuario.nombre,
+  };
+}
+
+function buildQuery(params: Record<string, string | number | undefined>) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '') query.set(key, String(value));
+  }
+  const text = query.toString();
+  return text ? `?${text}` : '';
 }
 
 function getMessage(data: unknown) {
@@ -127,6 +238,7 @@ async function apiFetch<T>(
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...getAuthHeaders(),
       ...(options.headers || {}),
     },
   });
@@ -138,6 +250,29 @@ async function apiFetch<T>(
   }
 
   return data as T;
+}
+
+function filenameFromDisposition(disposition: string | null, fallback: string) {
+  if (!disposition) return fallback;
+  const match = disposition.match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i);
+  return match?.[1] ? decodeURIComponent(match[1].replaceAll('"', '')) : fallback;
+}
+
+async function download(endpoint: string, fallbackFilename: string) {
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    headers: getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    const data = await readResponse(response);
+    throw new Error(getMessage(data));
+  }
+
+  const blob = await response.blob();
+  return {
+    blob,
+    filename: filenameFromDisposition(response.headers.get('Content-Disposition'), fallbackFilename),
+  };
 }
 
 export const facturasService = {
@@ -170,6 +305,8 @@ export const facturasService = {
       arca?: unknown;
       pago: Pago;
       factura?: Factura;
+      cliente?: ClienteFactura | null;
+      movimiento?: MovimientoCuentaCorriente | null;
       pedido?: PedidoListoFactura;
       requiereConfirmacion: boolean;
     }>(`/facturas/pedido/${payload.pedidoId}/cobrar`, {
@@ -185,6 +322,8 @@ export const facturasService = {
         recibidoPor: payload.recibidoPor,
         montoRecibido: payload.montoRecibido,
         vuelto: payload.vuelto,
+        cliente: payload.cliente,
+        idempotencyKey: payload.idempotencyKey,
       }),
     });
   },
@@ -209,13 +348,75 @@ export const facturasService = {
     });
   },
 
-  async obtenerFacturas(): Promise<Factura[]> {
+  async obtenerFacturas(filtros: FacturasFiltros = {}): Promise<Factura[]> {
     const response = await apiFetch<{
       mensaje: string;
       total: number;
       facturas: Factura[];
-    }>('/facturas');
+    }>(`/facturas${buildQuery({ ...filtros, limit: 50 })}`);
 
     return Array.isArray(response.facturas) ? response.facturas : [];
+  },
+
+  async exportarFacturas(filtros: FacturasFiltros = {}) {
+    return download(`/facturas/exportar${buildQuery(filtros)}`, 'facturas.xlsx');
+  },
+
+  async obtenerCuentasCorrientes(): Promise<CuentaCorrienteResumen[]> {
+    const response = await apiFetch<{
+      mensaje: string;
+      total: number;
+      cuentas: CuentaCorrienteResumen[];
+    }>('/facturas/cuentas-corrientes');
+
+    return Array.isArray(response.cuentas) ? response.cuentas : [];
+  },
+
+  async obtenerCuentaCorriente(clienteId: string): Promise<CuentaCorrienteDetalle> {
+    return apiFetch<CuentaCorrienteDetalle & { mensaje: string }>(`/facturas/cuentas-corrientes/${clienteId}`);
+  },
+
+  async registrarPagoCuentaCorriente(params: {
+    clienteId: string;
+    importe: number;
+    medioPago: string;
+    referencia?: string;
+    observaciones?: string;
+    fechaPago?: string;
+    idempotencyKey: string;
+  }): Promise<CuentaCorrienteDetalle> {
+    return apiFetch<CuentaCorrienteDetalle & { mensaje: string }>(`/facturas/cuentas-corrientes/${params.clienteId}/pagos`, {
+      method: 'POST',
+      body: JSON.stringify({
+        importe: params.importe,
+        medioPago: params.medioPago,
+        referencia: params.referencia,
+        observaciones: params.observaciones,
+        fechaPago: params.fechaPago,
+        idempotencyKey: params.idempotencyKey,
+      }),
+    });
+  },
+
+  async registrarAjusteCuentaCorriente(params: {
+    clienteId: string;
+    tipo: 'DEBIT' | 'CREDIT';
+    importe: number;
+    motivo: string;
+    idempotencyKey: string;
+  }) {
+    return apiFetch<{ mensaje: string; movimiento: MovimientoCuentaCorriente }>(`/facturas/cuentas-corrientes/${params.clienteId}/ajustes`, {
+      method: 'POST',
+      body: JSON.stringify({
+        tipo: params.tipo,
+        importe: params.importe,
+        motivo: params.motivo,
+        idempotencyKey: params.idempotencyKey,
+      }),
+    });
+  },
+
+  async exportarCuentaCorriente(clienteId: string) {
+    return download(`/facturas/cuentas-corrientes/${clienteId}/exportar`, `cuenta_corriente_${clienteId}.xlsx`);
   },
 };

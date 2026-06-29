@@ -1,5 +1,16 @@
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import { solicitarCAE } from "../services/arca.service.js";
+import {
+  buscarMovimientoPorIdempotency,
+  crearDebitoFacturaCuentaCorriente,
+  mapCliente,
+  mapMovimientoCuentaCorriente,
+  obtenerOCrearCliente,
+} from "../services/cuentaCorriente.service.js";
+import {
+  obtenerUsuarioRequest,
+  rechazarSinPermisoFacturacion,
+} from "../utils/authz.js";
 
 const ESTADOS_LISTOS_PARA_COBRAR = [
   "listo",
@@ -7,8 +18,12 @@ const ESTADOS_LISTOS_PARA_COBRAR = [
   "lista_para_cobrar",
 ];
 
-const METODOS_PAGO = ["efectivo", "billetera_virtual", "debito", "credito"];
+const METODOS_PAGO = ["efectivo", "billetera_virtual", "debito", "credito", "cuenta_corriente"];
 const TIPOS_COMPROBANTE = [1, 6, 11];
+
+function money(value) {
+  return Number(Number(value || 0).toFixed(2));
+}
 
 function calcularImpuestos(total) {
   const totalNumero = Number(total || 0);
@@ -82,6 +97,7 @@ function mapPago(pago) {
     id: pago.id,
     pedidoId: pago.pedido_id,
     mesaId: pago.mesa_id,
+    clienteId: pago.cliente_id,
     metodoPago: pago.metodo_pago,
     tipoComprobante: Number(pago.tipo_comprobante || 6),
     monto: Number(pago.monto || 0),
@@ -109,12 +125,15 @@ function mapFactura(factura) {
     pedidoId: factura.pedido_id,
     pagoId: factura.pago_id,
     mesaId: factura.mesa_id,
+    clienteId: factura.cliente_id,
     numeroComprobante: factura.numero_comprobante,
     tipoComprobante: Number(factura.tipo_comprobante || 6),
     metodoPago: factura.metodo_pago,
-    subtotal: Number(factura.subtotal || 0),
-    impuestos: Number(factura.impuestos || 0),
-    total: Number(factura.total || 0),
+    subtotal: money(factura.subtotal),
+    impuestos: money(factura.impuestos),
+    descuento: money(factura.descuento),
+    total: money(factura.total),
+    saldoPendiente: money(factura.saldo_pendiente),
     estado: factura.estado,
     cae: factura.cae,
     vencimientoCae: factura.vencimiento_cae,
@@ -122,6 +141,7 @@ function mapFactura(factura) {
     arcaEstado: factura.arca_estado,
     arcaError: factura.arca_error,
     creadoEn: factura.creado_en,
+    cliente: factura.clientes ? mapCliente(factura.clientes) : null,
     pedido: factura.pedidos ? mapPedido(factura.pedidos) : null,
     pago: factura.pagos ? mapPago(factura.pagos) : null,
   };
@@ -145,6 +165,19 @@ async function obtenerPedidoCompleto(pedidoId) {
     throw new Error(error?.message || "Pedido no encontrado");
   }
 
+  return data;
+}
+
+async function obtenerFacturaPorMovimiento(movimiento) {
+  if (!movimiento?.factura_id) return null;
+
+  const { data, error } = await supabaseAdmin
+    .from("facturas")
+    .select("*, pagos(*)")
+    .eq("id", movimiento.factura_id)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
   return data;
 }
 
@@ -179,27 +212,41 @@ async function emitirComprobante({ pedido, pago, tipoComprobante }) {
   };
 }
 
-async function crearFacturaDesdePago({ pedido, pago, arca }) {
+async function crearFacturaDesdePago({
+  pedido,
+  pago,
+  arca,
+  clienteId = null,
+  estado = "emitida",
+  saldoPendiente = 0,
+}) {
   const importes = calcularImpuestos(pedido.total);
+  const payload = {
+    pedido_id: pedido.id,
+    pago_id: pago.id,
+    mesa_id: pedido.mesa_id,
+    numero_comprobante: arca.numeroComprobante,
+    tipo_comprobante: arca.tipoComprobante || pago.tipo_comprobante || 6,
+    metodo_pago: pago.metodo_pago,
+    subtotal: importes.subtotal,
+    impuestos: importes.impuestos,
+    total: importes.total,
+    estado,
+    cae: arca.cae,
+    vencimiento_cae: arca.vencimientoCae,
+    qr_fiscal: arca.qrFiscal,
+    arca_estado: "aprobado",
+    arca_error: null,
+  };
+
+  if (clienteId) payload.cliente_id = clienteId;
+  if (Number(saldoPendiente || 0) > 0 || estado !== "emitida") {
+    payload.saldo_pendiente = money(saldoPendiente);
+  }
+
   const { data: factura, error } = await supabaseAdmin
     .from("facturas")
-    .insert({
-      pedido_id: pedido.id,
-      pago_id: pago.id,
-      mesa_id: pedido.mesa_id,
-      numero_comprobante: arca.numeroComprobante,
-      tipo_comprobante: arca.tipoComprobante || pago.tipo_comprobante || 6,
-      metodo_pago: pago.metodo_pago,
-      subtotal: importes.subtotal,
-      impuestos: importes.impuestos,
-      total: importes.total,
-      estado: "emitida",
-      cae: arca.cae,
-      vencimiento_cae: arca.vencimientoCae,
-      qr_fiscal: arca.qrFiscal,
-      arca_estado: "aprobado",
-      arca_error: null,
-    })
+    .insert(payload)
     .select()
     .single();
 
@@ -304,6 +351,8 @@ export const cobrarPedido = async (req, res) => {
       recibidoPor,
       montoRecibido,
       vuelto,
+      cliente,
+      idempotencyKey,
     } = req.body;
 
     if (!pedidoId) {
@@ -312,6 +361,22 @@ export const cobrarPedido = async (req, res) => {
 
     if (!METODOS_PAGO.includes(metodoPago)) {
       return res.status(400).json({ mensaje: "Metodo de pago invalido" });
+    }
+
+    if (metodoPago === "cuenta_corriente" && rechazarSinPermisoFacturacion(req, res)) return;
+
+    if (metodoPago === "cuenta_corriente" && idempotencyKey) {
+      const movimientoExistente = await buscarMovimientoPorIdempotency(idempotencyKey);
+      if (movimientoExistente) {
+        const facturaExistente = await obtenerFacturaPorMovimiento(movimientoExistente);
+        return res.status(200).json({
+          mensaje: "La factura a cuenta corriente ya habia sido registrada",
+          factura: mapFactura(facturaExistente),
+          movimiento: mapMovimientoCuentaCorriente(movimientoExistente),
+          requiereConfirmacion: false,
+          idempotente: true,
+        });
+      }
     }
 
     const tipoComprobanteNumero = Number(tipoComprobante || 6);
@@ -339,33 +404,42 @@ export const cobrarPedido = async (req, res) => {
       });
     }
 
+    const usuario = obtenerUsuarioRequest(req);
+    const clienteCuenta = metodoPago === "cuenta_corriente"
+      ? await obtenerOCrearCliente(cliente || {})
+      : null;
+
     const pagoTemporal = metodoPago === "efectivo";
+    const pagoPayload = {
+      pedido_id: pedido.id,
+      mesa_id: pedido.mesaId,
+      metodo_pago: metodoPago,
+      tipo_comprobante: tipoComprobanteNumero,
+      monto: pedido.total,
+      estado: pagoTemporal || metodoPago === "cuenta_corriente" ? "pendiente" : "pagado",
+      tipo_tarjeta:
+        metodoPago === "debito" || metodoPago === "credito"
+          ? tipoTarjeta || metodoPago
+          : null,
+      marca_tarjeta: marcaTarjeta || null,
+      banco_tarjeta: bancoTarjeta || null,
+      proveedor_billetera: proveedorBilletera || null,
+      referencia_pago: referenciaPago || null,
+      temporal: pagoTemporal,
+      expira_en: pagoTemporal
+        ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        : null,
+      confirmado_en: pagoTemporal || metodoPago === "cuenta_corriente" ? null : new Date().toISOString(),
+      recibido_por: recibidoPor || null,
+      monto_recibido: metodoPago === "cuenta_corriente" ? 0 : Number(montoRecibido || 0),
+      vuelto: metodoPago === "cuenta_corriente" ? 0 : Number(vuelto || 0),
+    };
+
+    if (clienteCuenta) pagoPayload.cliente_id = clienteCuenta.id;
+
     const { data: pago, error: pagoError } = await supabaseAdmin
       .from("pagos")
-      .insert({
-        pedido_id: pedido.id,
-        mesa_id: pedido.mesaId,
-        metodo_pago: metodoPago,
-        tipo_comprobante: tipoComprobanteNumero,
-        monto: pedido.total,
-        estado: pagoTemporal ? "pendiente" : "pagado",
-        tipo_tarjeta:
-          metodoPago === "debito" || metodoPago === "credito"
-            ? tipoTarjeta || metodoPago
-            : null,
-        marca_tarjeta: marcaTarjeta || null,
-        banco_tarjeta: bancoTarjeta || null,
-        proveedor_billetera: proveedorBilletera || null,
-        referencia_pago: referenciaPago || null,
-        temporal: pagoTemporal,
-        expira_en: pagoTemporal
-          ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-          : null,
-        confirmado_en: pagoTemporal ? null : new Date().toISOString(),
-        recibido_por: recibidoPor || null,
-        monto_recibido: Number(montoRecibido || 0),
-        vuelto: Number(vuelto || 0),
-      })
+      .insert(pagoPayload)
       .select()
       .single();
 
@@ -390,7 +464,25 @@ export const cobrarPedido = async (req, res) => {
       pago,
       tipoComprobante: tipoComprobanteNumero,
     });
-    const factura = await crearFacturaDesdePago({ pedido: pedidoRaw, pago, arca });
+    const factura = await crearFacturaDesdePago({
+      pedido: pedidoRaw,
+      pago,
+      arca,
+      clienteId: clienteCuenta?.id || null,
+      estado: metodoPago === "cuenta_corriente" ? "pendiente" : "emitida",
+      saldoPendiente: metodoPago === "cuenta_corriente" ? pedido.total : 0,
+    });
+
+    let movimiento = null;
+    if (metodoPago === "cuenta_corriente") {
+      movimiento = await crearDebitoFacturaCuentaCorriente({
+        clienteId: clienteCuenta.id,
+        factura,
+        creadoPor: recibidoPor || usuario.nombre || usuario.rol,
+        idempotencyKey,
+      });
+    }
+
     const advertenciaCierre = await cerrarPedidoYLiberarMesaSeguro(pedidoRaw);
 
     return res.status(201).json({
@@ -400,6 +492,8 @@ export const cobrarPedido = async (req, res) => {
       arca,
       pago: mapPago(pago),
       factura: mapFactura(factura),
+      cliente: mapCliente(clienteCuenta),
+      movimiento: mapMovimientoCuentaCorriente(movimiento),
       pedido,
       advertencia: advertenciaCierre,
       requiereConfirmacion: false,
@@ -479,7 +573,7 @@ export const confirmarPagoEfectivo = async (req, res) => {
 
 export const obtenerFacturas = async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from("facturas")
       .select(`
         *,
@@ -494,7 +588,16 @@ export const obtenerFacturas = async (req, res) => {
         )
       `)
       .order("creado_en", { ascending: false })
-      .limit(Number(req.query.limit || 20));
+      .limit(Math.min(Number(req.query.limit || 20), 200));
+
+    if (req.query.desde) query = query.gte("creado_en", `${req.query.desde}T00:00:00.000Z`);
+    if (req.query.hasta) query = query.lte("creado_en", `${req.query.hasta}T23:59:59.999Z`);
+    if (req.query.estado) query = query.eq("estado", req.query.estado);
+    if (req.query.metodoPago) query = query.eq("metodo_pago", req.query.metodoPago);
+    if (req.query.tipoComprobante) query = query.eq("tipo_comprobante", Number(req.query.tipoComprobante));
+    if (req.query.clienteId) query = query.eq("cliente_id", req.query.clienteId);
+
+    const { data, error } = await query;
 
     if (error) throw new Error(error.message);
 

@@ -1,11 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle,
   RefreshCcw,
   ShieldCheck,
+  Users,
 } from 'lucide-react';
 import { EstadoArca, type ArcaEstado } from '@/components/facturas/EstadoArca';
 import { FormularioCobro } from '@/components/facturas/FormularioCobro';
@@ -14,7 +16,9 @@ import { TablaFacturas } from '@/components/facturas/TablaFacturas';
 import { cn } from '@/hooks/lib/utils';
 import {
   facturasService,
+  type ClienteFacturaInput,
   type Factura,
+  type FacturasFiltros,
   type MetodoPagoFactura,
   type PedidoListoFactura,
   type Pago,
@@ -27,6 +31,22 @@ type MensajeUI = {
   detalle?: string;
 } | null;
 
+function createIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function descargarBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function FacturasPage() {
   const [pedidos, setPedidos] = useState<PedidoListoFactura[]>([]);
   const [facturas, setFacturas] = useState<Factura[]>([]);
@@ -36,6 +56,8 @@ export default function FacturasPage() {
   const [loading, setLoading] = useState(false);
   const [verificandoArca, setVerificandoArca] = useState(false);
   const [cobrando, setCobrando] = useState(false);
+  const [exportando, setExportando] = useState(false);
+  const exportandoRef = useRef(false);
   const [metodoPago, setMetodoPago] = useState<MetodoPagoFactura>('efectivo');
   const [tipoComprobante, setTipoComprobante] = useState<TipoComprobante>(6);
   const [marcaTarjeta, setMarcaTarjeta] = useState('Visa');
@@ -45,6 +67,8 @@ export default function FacturasPage() {
   const [recibidoPor, setRecibidoPor] = useState('admin');
   const [montoRecibido, setMontoRecibido] = useState<number>(0);
   const [pagoPendiente, setPagoPendiente] = useState<Pago | null>(null);
+  const [clienteCuenta, setClienteCuenta] = useState<ClienteFacturaInput>({});
+  const [filtros, setFiltros] = useState<FacturasFiltros>({});
 
   const pedidoSeleccionado = useMemo(() => {
     return pedidos.find((pedido) => pedido.id === pedidoSeleccionadoId) || null;
@@ -66,7 +90,7 @@ export default function FacturasPage() {
 
       const [pedidosListos, facturasEmitidas] = await Promise.all([
         facturasService.obtenerPedidosListos(),
-        facturasService.obtenerFacturas(),
+        facturasService.obtenerFacturas(filtros),
       ]);
 
       setPedidos(Array.isArray(pedidosListos) ? pedidosListos : []);
@@ -85,7 +109,7 @@ export default function FacturasPage() {
     } finally {
       setLoading(false);
     }
-  }, [mostrarMensaje, pedidoSeleccionadoId]);
+  }, [filtros, mostrarMensaje, pedidoSeleccionadoId]);
 
   const verificarARCA = useCallback(async () => {
     try {
@@ -117,6 +141,7 @@ export default function FacturasPage() {
     setRecibidoPor('admin');
     setMontoRecibido(0);
     setPagoPendiente(null);
+    setClienteCuenta({});
   }, []);
 
   const seleccionarPedido = useCallback((pedidoId: string) => {
@@ -133,22 +158,27 @@ export default function FacturasPage() {
     }
 
     if (!arca?.ok) {
-      mostrarMensaje({ tipo: 'warning', titulo: 'Verifica ARCA', detalle: 'Antes de cobrar tenés que verificar ARCA.' });
+      mostrarMensaje({ tipo: 'warning', titulo: 'Verifica ARCA', detalle: 'Antes de cobrar tenes que verificar ARCA.' });
       return;
     }
 
     if ((metodoPago === 'debito' || metodoPago === 'credito') && !bancoTarjeta.trim()) {
-      mostrarMensaje({ tipo: 'warning', titulo: 'Falta banco', detalle: 'Indicá el banco de la tarjeta.' });
+      mostrarMensaje({ tipo: 'warning', titulo: 'Falta banco', detalle: 'Indica el banco de la tarjeta.' });
       return;
     }
 
     if (metodoPago === 'billetera_virtual' && !proveedorBilletera.trim()) {
-      mostrarMensaje({ tipo: 'warning', titulo: 'Falta billetera', detalle: 'Indicá la billetera virtual utilizada.' });
+      mostrarMensaje({ tipo: 'warning', titulo: 'Falta billetera', detalle: 'Indica la billetera virtual utilizada.' });
       return;
     }
 
     if (metodoPago === 'efectivo' && Number(montoRecibido || 0) < Number(pedidoSeleccionado.total || 0)) {
       mostrarMensaje({ tipo: 'warning', titulo: 'Monto insuficiente', detalle: 'El monto recibido no puede ser menor al total del pedido.' });
+      return;
+    }
+
+    if (metodoPago === 'cuenta_corriente' && !clienteCuenta.nombre?.trim()) {
+      mostrarMensaje({ tipo: 'warning', titulo: 'Falta cliente', detalle: 'La cuenta corriente necesita un cliente.' });
       return;
     }
 
@@ -167,6 +197,8 @@ export default function FacturasPage() {
         recibidoPor,
         montoRecibido,
         vuelto,
+        cliente: metodoPago === 'cuenta_corriente' ? clienteCuenta : undefined,
+        idempotencyKey: metodoPago === 'cuenta_corriente' ? createIdempotencyKey() : undefined,
       });
 
       if (response.requiereConfirmacion) {
@@ -174,21 +206,27 @@ export default function FacturasPage() {
         mostrarMensaje({
           tipo: 'warning',
           titulo: 'Efectivo pendiente',
-          detalle: 'El pago quedó guardado temporalmente. Confirmalo para cerrar la mesa.',
+          detalle: 'El pago quedo guardado temporalmente. Confirmalo para cerrar la mesa.',
         });
         return;
       }
 
-      mostrarMensaje({ tipo: 'success', titulo: 'Factura emitida', detalle: 'La mesa fue cerrada correctamente.' });
+      mostrarMensaje({
+        tipo: 'success',
+        titulo: metodoPago === 'cuenta_corriente' ? 'Debito registrado' : 'Factura emitida',
+        detalle: metodoPago === 'cuenta_corriente'
+          ? 'La factura quedo vinculada a la cuenta corriente del cliente.'
+          : 'La mesa fue cerrada correctamente.',
+      });
       limpiarFormulario();
       await cargarDatos();
     } catch (error) {
       try {
-        const facturasActualizadas = await facturasService.obtenerFacturas();
+        const facturasActualizadas = await facturasService.obtenerFacturas(filtros);
         const facturaCreada = facturasActualizadas.find((factura) => factura.pedidoId === pedidoSeleccionado.id);
 
         if (facturaCreada) {
-          mostrarMensaje({ tipo: 'success', titulo: 'Factura emitida', detalle: 'La operación se completó correctamente.' });
+          mostrarMensaje({ tipo: 'success', titulo: 'Factura emitida', detalle: 'La operacion se completo correctamente.' });
           limpiarFormulario();
           await cargarDatos();
           return;
@@ -209,6 +247,8 @@ export default function FacturasPage() {
     arca,
     bancoTarjeta,
     cargarDatos,
+    clienteCuenta,
+    filtros,
     limpiarFormulario,
     marcaTarjeta,
     metodoPago,
@@ -249,6 +289,27 @@ export default function FacturasPage() {
     }
   }, [cargarDatos, limpiarFormulario, montoRecibido, mostrarMensaje, pagoPendiente, recibidoPor, vuelto]);
 
+  const exportarFacturas = useCallback(async () => {
+    if (exportandoRef.current) return;
+
+    exportandoRef.current = true;
+    try {
+      setExportando(true);
+      const archivo = await facturasService.exportarFacturas(filtros);
+      descargarBlob(archivo.blob, archivo.filename);
+      mostrarMensaje({ tipo: 'success', titulo: 'Exportacion lista', detalle: 'El archivo Excel fue generado.' });
+    } catch (error) {
+      mostrarMensaje({
+        tipo: 'error',
+        titulo: 'Error al exportar',
+        detalle: error instanceof Error ? error.message : 'No se pudo generar el Excel.',
+      });
+    } finally {
+      exportandoRef.current = false;
+      setExportando(false);
+    }
+  }, [filtros, mostrarMensaje]);
+
   const handleCobrar = useCallback(() => {
     void cobrarPedido();
   }, [cobrarPedido]);
@@ -270,10 +331,18 @@ export default function FacturasPage() {
       <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="font-display text-2xl sm:text-3xl font-black tracking-[0.18em] uppercase">Facturas</h1>
-          <p className="text-sm text-[#676B67] mt-1">Seleccioná un pedido listo para cobrar, verificá ARCA y emití la factura.</p>
+          <p className="text-sm text-[#676B67] mt-1">Selecciona un pedido listo para cobrar, verifica ARCA y emite la factura.</p>
         </div>
 
         <div className="flex flex-wrap gap-3">
+          <Link
+            href="/dashboard/facturas/cuentas-corrientes"
+            className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-300 hover:bg-emerald-500/20"
+          >
+            <Users size={16} />
+            Cuentas corrientes
+          </Link>
+
           <button
             type="button"
             onClick={() => void verificarARCA()}
@@ -333,6 +402,7 @@ export default function FacturasPage() {
           recibidoPor={recibidoPor}
           montoRecibido={montoRecibido}
           vuelto={vuelto}
+          clienteCuenta={clienteCuenta}
           pagoPendiente={pagoPendiente}
           cobrando={cobrando}
           onMetodoPagoChange={setMetodoPago}
@@ -343,12 +413,19 @@ export default function FacturasPage() {
           onReferenciaPagoChange={setReferenciaPago}
           onRecibidoPorChange={setRecibidoPor}
           onMontoRecibidoChange={setMontoRecibido}
+          onClienteCuentaChange={setClienteCuenta}
           onCobrar={handleCobrar}
           onConfirmarEfectivo={handleConfirmarEfectivo}
         />
       </div>
 
-      <TablaFacturas facturas={facturas} />
+      <TablaFacturas
+        facturas={facturas}
+        filtros={filtros}
+        exportando={exportando}
+        onFiltroChange={setFiltros}
+        onExportar={() => void exportarFacturas()}
+      />
     </div>
   );
 }

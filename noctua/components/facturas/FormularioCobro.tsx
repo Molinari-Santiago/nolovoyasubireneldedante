@@ -1,7 +1,7 @@
 'use client';
 
 import { memo } from 'react';
-import type { MetodoPagoFactura, Pago, PedidoListoFactura, TipoComprobante } from '@/services/facturasService';
+import type { ClienteFacturaInput, MetodoPagoFactura, Pago, PedidoListoFactura, TipoComprobante } from '@/services/facturasService';
 import {
   BILLETERAS,
   MARCAS_TARJETA,
@@ -20,6 +20,7 @@ interface FormularioCobroProps {
   recibidoPor: string;
   montoRecibido: number;
   vuelto: number;
+  clienteCuenta: ClienteFacturaInput;
   pagoPendiente: Pago | null;
   cobrando: boolean;
   onMetodoPagoChange: (value: MetodoPagoFactura) => void;
@@ -30,6 +31,7 @@ interface FormularioCobroProps {
   onReferenciaPagoChange: (value: string) => void;
   onRecibidoPorChange: (value: string) => void;
   onMontoRecibidoChange: (value: number) => void;
+  onClienteCuentaChange: (value: ClienteFacturaInput) => void;
   onCobrar: () => void;
   onConfirmarEfectivo: () => void;
 }
@@ -45,6 +47,7 @@ function FormularioCobroBase({
   recibidoPor,
   montoRecibido,
   vuelto,
+  clienteCuenta,
   pagoPendiente,
   cobrando,
   onMetodoPagoChange,
@@ -55,9 +58,14 @@ function FormularioCobroBase({
   onReferenciaPagoChange,
   onRecibidoPorChange,
   onMontoRecibidoChange,
+  onClienteCuentaChange,
   onCobrar,
   onConfirmarEfectivo,
 }: FormularioCobroProps) {
+  const updateCliente = (field: keyof ClienteFacturaInput, value: string) => {
+    onClienteCuentaChange({ ...clienteCuenta, [field]: value });
+  };
+
   return (
     <section className="rounded-2xl border border-[#1a1a1a] bg-[#080808] p-5">
       <h2 className="font-black tracking-widest uppercase text-sm mb-4">Datos de cobro</h2>
@@ -77,7 +85,7 @@ function FormularioCobroBase({
         </label>
 
         <div>
-          <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Método de pago</span>
+          <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Metodo de pago</span>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
             {METODOS_PAGO.map((metodo) => {
               const Icon = metodo.icon;
@@ -97,6 +105,51 @@ function FormularioCobroBase({
             })}
           </div>
         </div>
+
+        {metodoPago === 'cuenta_corriente' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border border-[#1f2937] bg-[#0d0d0d] p-4">
+            <label className="sm:col-span-2">
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Cliente</span>
+              <input
+                value={clienteCuenta.nombre || ''}
+                onChange={(event) => updateCliente('nombre', event.target.value)}
+                className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40"
+              />
+            </label>
+            <label>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">CUIT / documento</span>
+              <input
+                value={clienteCuenta.documento || ''}
+                onChange={(event) => updateCliente('documento', event.target.value)}
+                className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40"
+              />
+            </label>
+            <label>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Condicion fiscal</span>
+              <input
+                value={clienteCuenta.condicionFiscal || ''}
+                onChange={(event) => updateCliente('condicionFiscal', event.target.value)}
+                className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40"
+              />
+            </label>
+            <label>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Email</span>
+              <input
+                value={clienteCuenta.email || ''}
+                onChange={(event) => updateCliente('email', event.target.value)}
+                className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40"
+              />
+            </label>
+            <label>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Telefono</span>
+              <input
+                value={clienteCuenta.telefono || ''}
+                onChange={(event) => updateCliente('telefono', event.target.value)}
+                className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40"
+              />
+            </label>
+          </div>
+        )}
 
         {metodoPago === 'efectivo' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -144,7 +197,7 @@ function FormularioCobroBase({
               <input value={bancoTarjeta} onChange={(event) => onBancoTarjetaChange(event.target.value)} className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40" />
             </label>
             <label className="sm:col-span-2">
-              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Referencia / cupón</span>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Referencia / cupon</span>
               <input value={referenciaPago} onChange={(event) => onReferenciaPagoChange(event.target.value)} className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40" />
             </label>
           </div>
@@ -157,7 +210,7 @@ function FormularioCobroBase({
 
         <div className="flex flex-col gap-3 pt-2">
           <button type="button" onClick={onCobrar} disabled={!pedidoSeleccionado || cobrando} className="rounded-xl bg-white px-4 py-4 text-sm font-black text-black hover:bg-[#BCB9B9] disabled:opacity-40">
-            {cobrando ? 'Procesando...' : 'Verificar ARCA, facturar y cerrar mesa'}
+            {cobrando ? 'Procesando...' : metodoPago === 'cuenta_corriente' ? 'Facturar a cuenta corriente' : 'Verificar ARCA, facturar y cerrar mesa'}
           </button>
 
           {pagoPendiente && (
