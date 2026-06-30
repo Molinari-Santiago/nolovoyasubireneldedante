@@ -12,8 +12,14 @@ import categoriasRoutes from "./routes/categorias.routes.js";
 const app = express();
 
 app.use(cors({
-  origin: "http://localhost:3000",
-  credentials: true
+  origin: (origin, callback) => {
+    // Permite cualquier origen localhost en desarrollo
+    if (!origin || /^http:\/\/localhost(:\d+)?$/.test(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
 }));
 
 app.use(express.json());

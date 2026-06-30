@@ -109,7 +109,7 @@ export const abrirPedido = async (req, res) => {
 
     await supabaseAdmin
       .from("mesas")
-      .update({ disponible: false, estado: "ocupada" })
+      .update({ disponible: false, estado: "esperando_pedido" })
       .eq("id", mesaId);
 
     const pedido = await obtenerPedidoCompleto(data.id);
@@ -141,7 +141,12 @@ export const obtenerPedidos = async (req, res) => {
       `)
       .order("created_at", { ascending: false });
 
-    if (estado) query = query.eq("estado", estado);
+    if (estado) {
+      const listaEstados = estado.split(",").map((s) => s.trim()).filter(Boolean);
+      query = listaEstados.length === 1
+        ? query.eq("estado", listaEstados[0])
+        : query.in("estado", listaEstados);
+    }
     if (mesaId) query = query.eq("mesa_id", mesaId);
     if (desde) query = query.gte("created_at", desde);
     if (hasta) query = query.lte("created_at", hasta);
@@ -317,6 +322,14 @@ export const cancelarPedido = async (req, res) => {
     });
   }
 };
+const PEDIDO_A_MESA_ESTADO = {
+  pendiente: "esperando_pedido",
+  preparando: "esperando_pedido",
+  listo: "pedido_listo",
+  entregado: "ocupada", // esperando_pago no existe en el enum → se queda como ocupada
+  cancelado: "libre",
+};
+
 export const actualizarEstado = async (req, res) => {
   try {
     const { id } = req.params;
@@ -329,12 +342,30 @@ export const actualizarEstado = async (req, res) => {
       });
     }
 
+    // Obtener mesa_id antes de actualizar
+    const { data: pedidoRaw } = await supabaseAdmin
+      .from("pedidos")
+      .select("mesa_id")
+      .eq("id", id)
+      .single();
+
     const { error } = await supabaseAdmin
       .from("pedidos")
       .update({ estado })
       .eq("id", id);
 
     if (error) throw new Error(error.message);
+
+    // Sincronizar estado de la mesa según el nuevo estado del pedido
+    const mesaId = pedidoRaw?.mesa_id;
+    const nuevoEstadoMesa = PEDIDO_A_MESA_ESTADO[estado];
+    if (mesaId && nuevoEstadoMesa) {
+      const disponible = estado === "cancelado";
+      await supabaseAdmin
+        .from("mesas")
+        .update({ estado: nuevoEstadoMesa, disponible })
+        .eq("id", mesaId);
+    }
 
     const pedido = await obtenerPedidoCompleto(id);
 
@@ -354,21 +385,50 @@ export const eliminarPedido = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Primero eliminamos los items del pedido (FK constraint)
+    // Obtener mesa_id antes de eliminar para poder liberarla después
+    const { data: pedidoRaw } = await supabaseAdmin
+      .from("pedidos")
+      .select("mesa_id")
+      .eq("id", id)
+      .single();
+    const mesaId = pedidoRaw?.mesa_id;
+
+    // Orden correcto respetando FKs:
+    // 1. facturas (referencia pedidos y pagos)
+    const { error: facturasError } = await supabaseAdmin
+      .from("facturas")
+      .delete()
+      .eq("pedido_id", id);
+    if (facturasError) throw new Error(facturasError.message);
+
+    // 2. movimientos_stock (referencia pedidos)
+    const { error: stockError } = await supabaseAdmin
+      .from("movimientos_stock")
+      .delete()
+      .eq("pedido_id", id);
+    if (stockError) throw new Error(stockError.message);
+
+    // 3. pedido_items (referencia pedidos)
     const { error: itemsError } = await supabaseAdmin
       .from("pedido_items")
       .delete()
       .eq("pedido_id", id);
-
     if (itemsError) throw new Error(itemsError.message);
 
-    // Luego eliminamos el pedido
+    // 4. pedido
     const { error } = await supabaseAdmin
       .from("pedidos")
       .delete()
       .eq("id", id);
-
     if (error) throw new Error(error.message);
+
+    // 5. Liberar la mesa automáticamente
+    if (mesaId) {
+      await supabaseAdmin
+        .from("mesas")
+        .update({ disponible: true, estado: "libre" })
+        .eq("id", mesaId);
+    }
 
     return res.json({ mensaje: "Pedido eliminado correctamente" });
   } catch (error) {

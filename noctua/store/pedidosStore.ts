@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import type { Pedido, ItemPedido, EstadoCocina } from "@/types/pedido";
 import { generateId } from "@/hooks/lib/utils";
-import { crearPedido, obtenerPedidos, actualizarEstadoPedido } from "@/hooks/lib/api/pedidosApi";
+import { crearPedido, obtenerPedidos, obtenerPedidosActivos, actualizarEstadoPedido, eliminarPedido as eliminarPedidoApi } from "@/hooks/lib/api/pedidosApi";
 import { useMesasStore } from "@/store/mesasStore";
 
 interface PedidosState {
@@ -12,6 +12,7 @@ interface PedidosState {
   mesaActivaId: string | null;
 
   cargarPedidos: () => Promise<void>;
+  cargarPedidosActivos: () => Promise<void>;
 
   // Pedido actual (en construcción)
   iniciarPedido: (mesaId: string, numeroMesa: number, zona: string, personas: number) => void;
@@ -26,6 +27,9 @@ interface PedidosState {
 
   // Actualizar estado (desde cocina)
   actualizarEstadoCocina: (pedidoId: string, estado: EstadoCocina) => Promise<void>;
+
+  // Eliminar pedido
+  eliminarPedido: (pedidoId: string) => Promise<void>;
 
   // Getters
   getPedidoPorMesa: (mesaId: string) => Pedido | undefined;
@@ -42,6 +46,22 @@ export const usePedidosStore = create<PedidosState>((set, get) => ({
       set({ pedidos });
     } catch (error) {
       console.error("Error cargando pedidos:", error);
+    }
+  },
+
+  cargarPedidosActivos: async () => {
+    try {
+      const pedidos = await obtenerPedidosActivos();
+      // Merge: conservar pedidos no-activos ya en el store (ej. para facturas)
+      set((state) => {
+        const activosIds = new Set(pedidos.map((p) => p.id));
+        const otrosPedidos = state.pedidos.filter(
+          (p) => !activosIds.has(p.id) && !["pendiente", "preparando", "listo", "entregado"].includes(p.estado)
+        );
+        return { pedidos: [...otrosPedidos, ...pedidos] };
+      });
+    } catch (error) {
+      console.error("Error cargando pedidos activos:", error);
     }
   },
 
@@ -158,6 +178,7 @@ export const usePedidosStore = create<PedidosState>((set, get) => ({
     set({ pedidos: newPedidos, pedidoActual: null });
 
     // Sincronización con el store de mesas
+    // (el backend abrirPedido ya pone la mesa en esperando_pedido → realtime propaga)
     useMesasStore.getState().asignarPedido(pedidoFinal.mesaId, pedidoFinal.id);
     useMesasStore.getState().setEstadoMesa(pedidoFinal.mesaId, 'esperando_pedido');
 
@@ -177,6 +198,33 @@ export const usePedidosStore = create<PedidosState>((set, get) => ({
     }
   },
 
+  eliminarPedido: async (pedidoId) => {
+    try {
+      // Capturar mesaId y mesas unidas antes de eliminar
+      const pedido = get().pedidos.find((p) => p.id === pedidoId);
+      const mesaId = pedido?.mesaId;
+
+      await eliminarPedidoApi(pedidoId);
+
+      set((state) => ({
+        pedidos: state.pedidos.filter((p) => p.id !== pedidoId),
+      }));
+
+      // Liberar la mesa y sus unidas en el store local
+      if (mesaId) {
+        const mesasStore = useMesasStore.getState();
+        const mesa = mesasStore.mesas.find((m) => m.id === mesaId);
+        if (mesa?.mesasUnidas && mesa.mesasUnidas.length > 0) {
+          mesa.mesasUnidas.forEach((id) => mesasStore.cerrarMesa(id));
+        }
+        mesasStore.cerrarMesa(mesaId);
+      }
+    } catch (e) {
+      console.error("Error al eliminar pedido:", e);
+      throw e;
+    }
+  },
+
   getPedidoPorMesa: (mesaId) =>
-    get().pedidos.find((p) => p.mesaId === mesaId && p.estado !== 'entregado'),
+    get().pedidos.find((p) => p.mesaId === mesaId),
 }));

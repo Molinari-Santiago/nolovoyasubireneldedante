@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import type { Mesa, EstadoMesa } from "@/types/mesa";
+import { supabase } from "@/hooks/lib/supabaseClient";
 import {
   obtenerMesas,
   crearMesa,
@@ -9,6 +10,10 @@ import {
   eliminarMesa,
   actualizarEstadoMesa,
 } from "@/hooks/lib/api/mesasApi";
+
+const ESTADOS_ACTIVOS: EstadoMesa[] = [
+  'ocupada', 'esperando_pedido', 'pedido_listo', 'esperando_pago', 'para_cobrar',
+];
 
 interface MesasState {
   mesas: Mesa[];
@@ -31,6 +36,7 @@ interface MesasState {
 
   setEstadoMesa: (id: string, estado: EstadoMesa) => void;
   setPersonasMesa: (id: string, personas: number) => void;
+  setTimerInicio: (id: string, fecha: Date) => void;
 
   abrirMesa: (id: string, personas: number) => void;
   cerrarMesa: (id: string) => void;
@@ -42,6 +48,8 @@ interface MesasState {
   dividirMesas: (id: string) => void;
 
   asignarPedido: (mesaId: string, pedidoId: string) => void;
+
+  suscribirCambiosMesas: () => () => void;
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -177,24 +185,40 @@ export const useMesasStore = create<MesasState>((set) => ({
       ),
     })),
 
+  setTimerInicio: (id, fecha) =>
+    set((state) => ({
+      mesas: state.mesas.map((m) =>
+        m.id === id ? { ...m, timerInicio: fecha } : m
+      ),
+    })),
+
   cambiarEstadoMesa: async (id, estado) => {
+    // Actualización optimista: estado + timerInicio según transición
+    set((state) => ({
+      mesas: state.mesas.map((m) => {
+        if (m.id !== id) return m;
+        const esActivo = ESTADOS_ACTIVOS.includes(estado);
+        const eraActivo = m.timerInicio !== undefined;
+        return {
+          ...m,
+          estado,
+          // Arrancar timer al pasar a activo si no había uno
+          timerInicio: esActivo
+            ? (eraActivo ? m.timerInicio : new Date())
+            : undefined,
+        };
+      }),
+    }));
+
     try {
-      set({ isLoading: true, error: null });
-
       await actualizarEstadoMesa(id, estado);
-
-      const mesas = await obtenerMesas();
-
-      set({ mesas });
     } catch (error) {
+      // Revertir estado local en caso de error
+      const mesas = await obtenerMesas();
       set({
-        error: getErrorMessage(
-          error,
-          "No se pudo cambiar el estado de la mesa"
-        ),
+        mesas,
+        error: getErrorMessage(error, "No se pudo cambiar el estado de la mesa"),
       });
-    } finally {
-      set({ isLoading: false });
     }
   },
 
@@ -249,4 +273,32 @@ export const useMesasStore = create<MesasState>((set) => ({
           : m
       ),
     })),
+
+  suscribirCambiosMesas: () => {
+    const channel = supabase
+      .channel("mesas-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "mesas" },
+        () => {
+          // Al detectar cualquier cambio, recargar las mesas
+          obtenerMesas()
+            .then((mesas) => {
+              set((state) => ({
+                // Preservar timerInicio local (no persiste en DB aún)
+                mesas: mesas.map((m) => {
+                  const prev = state.mesas.find((p) => p.id === m.id);
+                  return { ...m, timerInicio: prev?.timerInicio };
+                }),
+              }));
+            })
+            .catch(console.error);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  },
 }));

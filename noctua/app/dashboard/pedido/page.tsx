@@ -193,11 +193,18 @@ export default function PedidoPage() {
           >
             <option value="">— Seleccionar mesa —</option>
             {mesas
-              .map((m) => (
-                <option key={m.id} value={m.id}>
-                  Mesa {m.numero} — {m.zona}
-                </option>
-              ))}
+              .map((m) => {
+                const unidasNums = (m.mesasUnidas ?? [])
+                  .map((id) => mesas.find((x) => x.id === id)?.numero ?? 0)
+                  .filter((n) => n > 0)
+                  .sort((a, b) => a - b);
+                const label = unidasNums.length > 0
+                  ? `Mesa ${m.numero}+${unidasNums.join('+')} — ${m.zona}`
+                  : `Mesa ${m.numero} — ${m.zona}`;
+                return (
+                  <option key={m.id} value={m.id}>{label}</option>
+                );
+              })}
           </select>
         </div>
 
