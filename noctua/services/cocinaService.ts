@@ -8,7 +8,7 @@ const COCINA_TO_MESA: Record<EstadoCocina, EstadoMesa> = {
   pendiente: 'esperando_pedido',
   preparando: 'esperando_pedido',
   listo: 'pedido_listo',
-  entregado: 'esperando_pago',
+  entregado: 'para_cobrar',
 };
 
 export const cocinaService = {
@@ -38,7 +38,8 @@ export const cocinaService = {
     // Actualizamos BD y Estado Local
     await actualizarEstadoCocina(pedidoId, nuevoEstado);
 
-    // Sincronizamos con el Store de Mesas
+    // Actualización optimista local — el backend ya actualizó la mesa en BD
+    // vía PATCH /pedidos/:id/estado → el realtime de Supabase dispara PedidoListoAlerta
     const mesaEstado = COCINA_TO_MESA[nuevoEstado];
     useMesasStore.getState().setEstadoMesa(pedido.mesaId, mesaEstado);
   },
