@@ -19,7 +19,6 @@ export default function StockPage() {
     view,
     searchQuery,
     selectedCategory,
-    cargarProductos,
   } = useStockStore();
   const { config, initializeConfig } = useSuperAdmStore();
   
@@ -28,9 +27,10 @@ export default function StockPage() {
   }, [initializeConfig]);
 
   useEffect(() => {
-    setIsLoading(true);
-    cargarProductos().finally(() => setIsLoading(false));
-  }, [cargarProductos]);
+    // Just wait a little to simulate loading
+    const timer = setTimeout(() => setIsLoading(false), 500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const filteredAndGroupedIngredients = useMemo(() => {
     return categories.map(category => {
@@ -55,6 +55,14 @@ export default function StockPage() {
           if (filter === 'empty') return ing.stock === 0;
           if (filter === 'low') return ing.stock > 0 && ing.stock < ing.minStock;
           if (filter === 'ok') return ing.stock >= ing.minStock;
+          if (filter === 'expiring') {
+            if (!ing.expirationDate || !ing.hasExpiration) return false;
+            const expDate = new Date(ing.expirationDate);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const diffDays = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+            return diffDays <= 7;
+          }
           return true;
         });
       }
@@ -92,7 +100,7 @@ export default function StockPage() {
               className="space-y-4"
             >
               {filteredAndGroupedIngredients.length === 0 ? (
-                <div className="text-center py-16" style={{ color: 'var(--color-text-secondary)' }} className="text-sm">
+                <div className="text-center py-16 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                   No se encontraron productos.
                 </div>
               ) : (
@@ -129,6 +137,9 @@ export default function StockPage() {
                       Estado
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold tracking-widest uppercase" style={{ color: 'var(--color-text-secondary)' }}>
+                      Vencimiento
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-widest uppercase" style={{ color: 'var(--color-text-secondary)' }}>
                       Última actualización
                     </th>
                   </tr>
@@ -136,7 +147,7 @@ export default function StockPage() {
                 <tbody>
                   {filteredAndGroupedIngredients.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-4 py-16 text-center text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                      <td colSpan={6} className="px-4 py-16 text-center text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                         No se encontraron productos.
                       </td>
                     </tr>

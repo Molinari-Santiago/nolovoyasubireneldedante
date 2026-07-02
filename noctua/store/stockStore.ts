@@ -41,6 +41,9 @@ interface StockState {
   updateIngredient: (ingredientId: string, updates: Partial<Ingredient>) => Promise<void>;
   getLowStockIngredients: () => Ingredient[];
   getTotalIngredients: () => number;
+  getExpiringIngredients: (daysThreshold: number) => Ingredient[];
+  getIngredientsLinkedToDish: (dishId: string) => Ingredient[];
+  deductIngredients: (deductions: { ingredientId: string; amount: number }[]) => void;
 
   // CATEGORIES & PRODUCTS (FOR SUPERADMIN)
   categorias: Categoria[];
@@ -72,7 +75,7 @@ export const useStockStore = create<StockState>((set, get) => {
 
   return {
     // NEW INGREDIENT SYSTEM
-    categories: [],
+    categories: initialCategories,
     filter: 'all',
     view: 'grid',
     searchQuery: '',
@@ -121,6 +124,8 @@ export const useStockStore = create<StockState>((set, get) => {
         stock: p.stock ?? 0,
         unit: "unidades",
         minStock: 5,
+        expirationDate: null,
+        hasExpiration: false,
         lastUpdated: new Date(),
       }));
       
@@ -136,6 +141,8 @@ export const useStockStore = create<StockState>((set, get) => {
         stock: p.stock ?? 0,
         unit: "unidades",
         minStock: 5,
+        expirationDate: null,
+        hasExpiration: false,
         lastUpdated: new Date(),
       }));
       
@@ -247,6 +254,8 @@ export const useStockStore = create<StockState>((set, get) => {
             stock: p.stock ?? 0,
             unit: ingredient.unit,
             minStock: ingredient.minStock,
+            expirationDate: ingredient.expirationDate ?? null,
+            hasExpiration: ingredient.hasExpiration ?? false,
             lastUpdated: new Date(),
           };
 
@@ -291,6 +300,8 @@ export const useStockStore = create<StockState>((set, get) => {
           stock: ingredient.stock,
           unit: ingredient.unit,
           minStock: ingredient.minStock,
+          expirationDate: ingredient.expirationDate ?? null,
+          hasExpiration: ingredient.hasExpiration ?? false,
           lastUpdated: new Date(),
         };
 
@@ -377,6 +388,44 @@ export const useStockStore = create<StockState>((set, get) => {
       return get().categories.reduce(
         (total, cat) => total + cat.ingredients.length, 0
       );
+    },
+
+    getExpiringIngredients: (daysThreshold: number) => {
+      const allIngredients = get().categories.flatMap((cat) => cat.ingredients);
+      const now = new Date();
+      return allIngredients.filter((ing) => {
+        if (!ing.expirationDate || !ing.hasExpiration) return false;
+        const expirationDate = new Date(ing.expirationDate);
+        const diffTime = expirationDate.getTime() - now.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        return diffDays <= daysThreshold;
+      });
+    },
+
+    getIngredientsLinkedToDish: (dishId: string) => {
+      // For now, return all ingredients used in any recipe
+      // We'll implement this better later
+      return [];
+    },
+
+    deductIngredients: (deductions: { ingredientId: string; amount: number }[]) => {
+      set((state) => {
+        const newCategories = state.categories.map((cat) => ({
+          ...cat,
+          ingredients: cat.ingredients.map((ing) => {
+            const deduction = deductions.find((d) => d.ingredientId === ing.id);
+            if (deduction) {
+              return {
+                ...ing,
+                stock: Math.max(0, ing.stock - deduction.amount),
+                lastUpdated: new Date()
+              };
+            }
+            return ing;
+          })
+        }));
+        return { categories: newCategories };
+      });
     },
 
     updateIngredient: async (ingredientId: string, updates: Partial<Ingredient>) => {
@@ -479,6 +528,8 @@ export const useStockStore = create<StockState>((set, get) => {
             stock: result.producto.stock || 0,
             unit: "unidades",
             minStock: 5,
+            expirationDate: null,
+            hasExpiration: false,
             lastUpdated: new Date(),
           };
 
@@ -517,6 +568,8 @@ export const useStockStore = create<StockState>((set, get) => {
           stock: producto.stock || 0,
           unit: "unidades",
           minStock: 5,
+          expirationDate: null,
+          hasExpiration: false,
           lastUpdated: new Date(),
         };
 

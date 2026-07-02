@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { StockBadge } from './StockBadge';
+import { ExpirationBadge } from './ExpirationBadge';
 import { StockProgressBar } from './StockProgressBar';
 import { StockAdjuster } from './StockAdjuster';
 import type { Ingredient } from '@/types/stock';
@@ -23,7 +24,10 @@ export const IngredientCard = ({ ingredient, index }: IngredientCardProps) => (
         <h3 className="text-white font-semibold text-sm">{ingredient.name}</h3>
         <p className="text-[#676b67] text-xs">{ingredient.category}</p>
       </div>
-      <StockBadge ingredient={ingredient} />
+      <div className="flex items-center gap-2">
+        <StockBadge ingredient={ingredient} />
+        <ExpirationBadge ingredient={ingredient} />
+      </div>
     </div>
     
     <div className="space-y-3">

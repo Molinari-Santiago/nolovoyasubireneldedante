@@ -2,17 +2,24 @@
 
 import { create } from "zustand";
 import type { Pedido, ItemPedido, EstadoCocina } from "@/types/pedido";
+import type { Dish } from "@/types/orders";
 import { generateId } from "@/hooks/lib/utils";
 import { crearPedido, obtenerPedidos, obtenerPedidosActivos, actualizarEstadoPedido, eliminarPedido as eliminarPedidoApi } from "@/hooks/lib/api/pedidosApi";
 import { useMesasStore } from "@/store/mesasStore";
+import { buildInitialDishes } from "@/hooks/lib/dishesMockData";
+import { calculateAllDishesAvailability, calculateMaxAvailable } from "@/lib/recipeCalculator";
+import type { Ingredient } from "@/types/stock";
+import { useStockStore } from "./stockStore";
 
 interface PedidosState {
   pedidos: Pedido[];
   pedidoActual: Pedido | null;
   mesaActivaId: string | null;
+  dishes: Dish[];
 
   cargarPedidos: () => Promise<void>;
   cargarPedidosActivos: () => Promise<void>;
+  cargarDishes: () => void;
 
   // Pedido actual (en construcción)
   iniciarPedido: (mesaId: string, numeroMesa: number, zona: string, personas: number) => void;
@@ -33,12 +40,19 @@ interface PedidosState {
 
   // Getters
   getPedidoPorMesa: (mesaId: string) => Pedido | undefined;
+  
+  // Dishes
+  updateDishesAvailability: (ingredients: Ingredient[]) => void;
+  addDish: (dish: Dish) => void;
+  updateDish: (dishId: string, updates: Partial<Dish>) => void;
+  deleteDish: (dishId: string) => void;
 }
 
 export const usePedidosStore = create<PedidosState>((set, get) => ({
   pedidos: [],
   pedidoActual: null,
   mesaActivaId: null,
+  dishes: buildInitialDishes(),
 
   cargarPedidos: async () => {
     try {
@@ -63,6 +77,13 @@ export const usePedidosStore = create<PedidosState>((set, get) => ({
     } catch (error) {
       console.error("Error cargando pedidos activos:", error);
     }
+  },
+
+  cargarDishes: () => {
+    const dishes = buildInitialDishes();
+    const stockIngredients = useStockStore.getState().categories.flatMap(cat => cat.ingredients);
+    const dishesWithAvailability = calculateAllDishesAvailability(dishes, stockIngredients);
+    set({ dishes: dishesWithAvailability });
   },
 
   iniciarPedido: (mesaId, numeroMesa, zona, personas) => {
@@ -227,4 +248,53 @@ export const usePedidosStore = create<PedidosState>((set, get) => ({
 
   getPedidoPorMesa: (mesaId) =>
     get().pedidos.find((p) => p.mesaId === mesaId),
+
+  updateDishesAvailability: (ingredients: Ingredient[]) => {
+    set((state) => ({
+      dishes: calculateAllDishesAvailability(state.dishes, ingredients)
+    }));
+  },
+
+  addDish: (dish: Dish) => {
+    set((state) => {
+      const stockIngredients = useStockStore.getState().categories.flatMap(cat => cat.ingredients);
+      const stockMap = new Map<string, Ingredient>();
+      stockIngredients.forEach(ing => stockMap.set(ing.id, ing));
+      
+      const dishWithAvailability = {
+        ...dish,
+        maxAvailable: calculateMaxAvailable(dish.recipe, stockMap),
+        isAvailable: calculateMaxAvailable(dish.recipe, stockMap) > 0
+      };
+      return { dishes: [...state.dishes, dishWithAvailability] };
+    });
+  },
+
+  updateDish: (dishId: string, updates: Partial<Dish>) => {
+    set((state) => {
+      const stockIngredients = useStockStore.getState().categories.flatMap(cat => cat.ingredients);
+      const stockMap = new Map<string, Ingredient>();
+      stockIngredients.forEach(ing => stockMap.set(ing.id, ing));
+      
+      return {
+        dishes: state.dishes.map(dish => {
+          if (dish.id === dishId) {
+            const updatedDish = { ...dish, ...updates };
+            return {
+              ...updatedDish,
+              maxAvailable: calculateMaxAvailable(updatedDish.recipe, stockMap),
+              isAvailable: calculateMaxAvailable(updatedDish.recipe, stockMap) > 0
+            };
+          }
+          return dish;
+        })
+      };
+    });
+  },
+
+  deleteDish: (dishId: string) => {
+    set((state) => ({
+      dishes: state.dishes.filter(dish => dish.id !== dishId)
+    }));
+  },
 }));

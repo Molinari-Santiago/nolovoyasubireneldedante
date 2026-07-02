@@ -94,6 +94,7 @@ export const StockFilters = ({ categories }: StockFiltersProps) => {
           { key: 'low' as const, label: 'Bajo' },
           { key: 'ok' as const, label: 'OK' },
           { key: 'empty' as const, label: 'Sin stock' },
+          { key: 'expiring' as const, label: 'Por vencer' },
         ].map((state) => (
           <button
             key={state.key}

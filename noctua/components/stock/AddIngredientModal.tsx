@@ -1,22 +1,10 @@
-import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { X, Plus, Check, AlertCircle } from "lucide-react";
-import { useStockStore } from "@/store/stockStore";
-import { toast } from "@/components/ui/Toast";
-import { cn } from "@/hooks/lib/utils";
-import type { StockCategory, Ingredient } from "@/types/stock";
-
-const slugify = (text: string): string =>
-  text
-    .toLowerCase()
-    .replace(/[áàâäã]/g, "a")
-    .replace(/[éèêë]/g, "e")
-    .replace(/[íìîï]/g, "i")
-    .replace(/[óòôöõ]/g, "o")
-    .replace(/[úùûü]/g, "u")
-    .replace(/[ñ]/g, "n")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { X, Plus, Check, AlertCircle } from 'lucide-react';
+import { useStockStore } from '@/store/stockStore';
+import { toast } from '@/components/ui/Toast';
+import { cn } from '@/hooks/lib/utils';
+import type { StockCategory, Ingredient } from '@/types/stock';
 
 interface AddIngredientModalProps {
   isOpen: boolean;
@@ -32,7 +20,9 @@ export const AddIngredientModal = ({ isOpen, onClose, categories }: AddIngredien
   const [newCategoryName, setNewCategoryName] = useState("");
   const [quantity, setQuantity] = useState(20);
   const [price, setPrice] = useState(0);
-  const [unit, setUnit] = useState<"unidades" | "kg" | "litros">("unidades");
+  const [unit, setUnit] = useState<"unidades" | "kg" | "litros" | "gramos" | "atado">("unidades");
+  const [expirationDate, setExpirationDate] = useState("");
+  const [hasExpiration, setHasExpiration] = useState(false);
   const [errors, setErrors] = useState<{ name?: string; category?: string; quantity?: string; price?: string }>({});
   const [duplicateWarning, setDuplicateWarning] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -55,6 +45,8 @@ export const AddIngredientModal = ({ isOpen, onClose, categories }: AddIngredien
       setQuantity(20);
       setPrice(0);
       setUnit("unidades");
+      setExpirationDate("");
+      setHasExpiration(false);
       setErrors({});
       setDuplicateWarning(false);
       setIsSubmitting(false);
@@ -62,7 +54,7 @@ export const AddIngredientModal = ({ isOpen, onClose, categories }: AddIngredien
   }, [isOpen, categories]);
 
   const validateForm = (): boolean => {
-    const newErrors: { name?: string; category?: string; quantity?: string } = {};
+    const newErrors: { name?: string; category?: string; quantity?: string; price?: string } = {};
     let isValid = true;
 
     if (!name.trim() || name.trim().length < 2) {
@@ -136,6 +128,8 @@ export const AddIngredientModal = ({ isOpen, onClose, categories }: AddIngredien
         stock: quantity,
         unit: unit,
         minStock: minStock,
+        expirationDate: hasExpiration && expirationDate ? new Date(expirationDate) : null,
+        hasExpiration: hasExpiration,
       };
 
       await addIngredientStore(newIngredient, price, isCreatingCategory);
@@ -252,7 +246,7 @@ export const AddIngredientModal = ({ isOpen, onClose, categories }: AddIngredien
                 {errors.category && <p className="text-red-400 text-xs mt-1">{errors.category}</p>}
               </div>
 
-              {/* Quantity and Unit */}
+              {/* Quantity, Unit and Price */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold tracking-widest uppercase text-[#676b67] mb-1.5">
@@ -280,6 +274,59 @@ export const AddIngredientModal = ({ isOpen, onClose, categories }: AddIngredien
                     className="w-full bg-[#111] border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-white transition-colors"
                   />
                   {errors.price && <p className="text-red-400 text-xs mt-1">{errors.price}</p>}
+                </div>
+              </div>
+
+              {/* Unit */}
+              <div>
+                <label className="block text-xs font-semibold tracking-widest uppercase text-[#676b67] mb-1.5">
+                  Unidad de medida
+                </label>
+                <select
+                  value={unit}
+                  onChange={(e) => setUnit(e.target.value as any)}
+                  className="w-full bg-[#111] border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-white transition-colors"
+                >
+                  <option value="unidades">Unidades</option>
+                  <option value="kg">Kilogramos</option>
+                  <option value="litros">Litros</option>
+                  <option value="gramos">Gramos</option>
+                  <option value="atado">Atado</option>
+                </select>
+              </div>
+
+              {/* Expiration */}
+              <div>
+                <label className="block text-xs font-semibold tracking-widest uppercase text-[#676b67] mb-1.5">
+                  Vencimiento
+                </label>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!hasExpiration}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setHasExpiration(false);
+                            setExpirationDate("");
+                          } else {
+                            setHasExpiration(true);
+                          }
+                        }}
+                        className="w-4 h-4 rounded"
+                      />
+                      <span className="text-xs text-[#bcb9b9]">Sin vencimiento</span>
+                    </label>
+                  </div>
+                  {hasExpiration && (
+                    <input
+                      type="date"
+                      value={expirationDate}
+                      onChange={(e) => setExpirationDate(e.target.value)}
+                      className="w-full bg-[#111] border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-white transition-colors"
+                    />
+                  )}
                 </div>
               </div>
 

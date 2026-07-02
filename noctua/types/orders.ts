@@ -1,5 +1,46 @@
 import type { PlatformId } from './platforms';
 
+export interface RecipeIngredient {
+  ingredientId: string;
+  ingredientName: string;
+  quantity: number;
+  unit: string;
+  isOptional: boolean;
+  canBeRemoved: boolean;
+}
+
+export interface Dish {
+  id: string;
+  name: string;
+  categoryId: string;
+  price: number;
+  recipe: RecipeIngredient[];
+  maxAvailable: number;
+  isAvailable: boolean;
+  description?: string;
+  imageUrl?: string;
+}
+
+export interface ItemModification {
+  type: 'remove' | 'add' | 'reduce';
+  ingredientId: string;
+  ingredientName: string;
+  originalQuantity?: number;
+  newQuantity?: number;
+}
+
+export interface OrderItem {
+  id: string;
+  dishId: string;
+  dishName: string;
+  price: number;
+  quantity: number;
+  recipe: RecipeIngredient[];
+  modifications: ItemModification[];
+  finalIngredients: RecipeIngredient[];
+  notes?: string;
+}
+
 export type OrderStatus =
   | 'new'
   | 'confirmed'
@@ -8,14 +49,6 @@ export type OrderStatus =
   | 'picked_up'
   | 'delivered'
   | 'cancelled';
-
-export interface OrderItem {
-  id: string;
-  name: string;
-  quantity: number;
-  unitPrice: number;
-  notes?: string;
-}
 
 export interface Order {
   id: string;
