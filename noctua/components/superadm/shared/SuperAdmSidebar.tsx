@@ -3,14 +3,13 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, UtensilsCrossed, ClipboardList, ChefHat,
+  LayoutDashboard, UtensilsCrossed, ChefHat,
   Package, Truck, Palette, Settings
 } from 'lucide-react';
 
 const sections = [
   { id: 'dashboard', name: 'Resumen', path: '/superadm', icon: LayoutDashboard },
   { id: 'mesas', name: 'Mesas', path: '/superadm/mesas', icon: UtensilsCrossed },
-  { id: 'pedidos', name: 'Pedidos', path: '/superadm/pedidos', icon: ClipboardList },
   { id: 'cocina', name: 'Cocina', path: '/superadm/cocina', icon: ChefHat },
   { id: 'stock', name: 'Stock', path: '/superadm/stock', icon: Package },
   { id: 'delivery', name: 'Delivery', path: '/superadm/delivery', icon: Truck },

@@ -18,6 +18,8 @@ import {
   ShieldCheck,
   Truck,
   Headphones,
+  Utensils,
+  Tag,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
@@ -37,6 +39,8 @@ const NAV_ITEMS = [
   { seccion: 'cajero',         icon: Receipt },
   { seccion: 'historial',      icon: History },
   { seccion: 'stock',          icon: Package },
+  { seccion: 'platos',         icon: Utensils },
+  { seccion: 'promociones',    icon: Tag },
   { seccion: 'delivery',       icon: Truck },
   { seccion: 'reservas',       icon: CalendarDays },
   { seccion: 'administracion', icon: ShieldCheck },

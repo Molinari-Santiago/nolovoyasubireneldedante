@@ -2,7 +2,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Trash2 } from 'lucide-react';
-import type { RecipeIngredient } from '@/types/orders';
+import type { RecipeIngredient } from '@/types/dishes';
 import type { Ingredient } from '@/types/stock';
 
 interface RecipeIngredientSelectorProps {
@@ -21,7 +21,7 @@ export const RecipeIngredientSelector = ({ ingredients, allStockIngredients, onC
         quantity: 0,
         unit: 'unidades',
         isOptional: false,
-        canBeRemoved: true,
+        isRemovable: true,
       },
     ]);
   };
@@ -41,7 +41,7 @@ export const RecipeIngredientSelector = ({ ingredients, allStockIngredients, onC
           ingredientName: stockIng.name,
           unit: stockIng.unit,
           isOptional: updated[index].isOptional ?? false,
-          canBeRemoved: updated[index].canBeRemoved ?? true,
+          isRemovable: updated[index].isRemovable ?? true,
         };
       } else {
         updated[index] = { ...updated[index], ...updates };
@@ -74,7 +74,7 @@ export const RecipeIngredientSelector = ({ ingredients, allStockIngredients, onC
             exit={{ opacity: 0, x: 20, height: 0 }}
             className="grid grid-cols-12 gap-2 items-center bg-[#111] border border-[#2a2a2a] rounded-xl p-3"
           >
-            <div className="col-span-6">
+            <div className="col-span-5">
               <select
                 value={ing.ingredientId}
                 onChange={(e) => updateIngredient(index, { ingredientId: e.target.value })}
@@ -86,7 +86,7 @@ export const RecipeIngredientSelector = ({ ingredients, allStockIngredients, onC
                 ))}
               </select>
             </div>
-            <div className="col-span-3">
+            <div className="col-span-2">
               <input
                 type="number"
                 step="0.1"
@@ -97,6 +97,17 @@ export const RecipeIngredientSelector = ({ ingredients, allStockIngredients, onC
             </div>
             <div className="col-span-2">
               <span className="text-sm text-[#676b67]">{ing.unit}</span>
+            </div>
+            <div className="col-span-2">
+              <label className="flex items-center gap-2 text-sm text-[#676b67]">
+                <input
+                  type="checkbox"
+                  checked={ing.isRemovable}
+                  onChange={(e) => updateIngredient(index, { isRemovable: e.target.checked })}
+                  className="rounded"
+                />
+                Removible
+              </label>
             </div>
             <div className="col-span-1 flex justify-end">
               <button

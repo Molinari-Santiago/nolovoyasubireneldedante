@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import type { Pedido, ItemPedido, EstadoCocina } from "@/types/pedido";
-import type { Dish } from "@/types/orders";
+import type { Dish } from "@/types/dishes";
 import { generateId } from "@/hooks/lib/utils";
 import { crearPedido, obtenerPedidos, obtenerPedidosActivos, actualizarEstadoPedido, eliminarPedido as eliminarPedidoApi } from "@/hooks/lib/api/pedidosApi";
 import { useMesasStore } from "@/store/mesasStore";
