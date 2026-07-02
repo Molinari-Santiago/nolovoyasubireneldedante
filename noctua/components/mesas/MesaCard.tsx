@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useEffect, memo } from 'react';
+import { useState, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Trash2, Clock, AlertTriangle, Users } from 'lucide-react';
+import { Trash2, Clock, AlertTriangle, Check } from 'lucide-react';
 import { MesaShape } from './MesaShape';
 import { MesaChairs } from './MesaChairs';
 import { MesaTouchOverlay } from './MesaTouchOverlay';
+import { MesaComensalesBadge } from './MesaComensalesBadge';
 import { MESA_ESTADO_HEX, getFormaVisual } from './mesaEstadoColors';
 import { TEXTO_ESTADO_MESA } from '@/hooks/lib/constants';
-import { formatElapsed, elapsedMinutes, cn } from '@/hooks/lib/utils';
+import { cn } from '@/hooks/lib/utils';
+import { useNowTick, formatElapsedShort, isElapsedAlert } from '@/hooks/useMesaTimer';
 import type { Mesa, MesaGestureCallbacks } from '@/types/mesa';
 
 /** Dimensiones del contenedor de sillas según forma visual */
@@ -22,7 +24,7 @@ interface MesaCardProps {
   isSelected:        boolean;
   isMergeMode:       boolean;
   isMergeSelected:   boolean;
-  isPickingOrigin:   boolean;
+  isSelectable:      boolean;
   isMozoRequerido:   boolean;
   mesasUnidasNums?:  number[];
   gestures:          MesaGestureCallbacks;
@@ -34,27 +36,18 @@ export const MesaCard = memo(function MesaCard({
   isSelected,
   isMergeMode,
   isMergeSelected,
-  isPickingOrigin,
+  isSelectable,
   isMozoRequerido,
   mesasUnidasNums = [],
   gestures,
   onDelete,
 }: MesaCardProps) {
-  const [elapsed, setElapsed]    = useState('');
-  const [isOverdue, setIsOverdue] = useState(false);
-  const [hovered, setHovered]    = useState(false);
+  const [hovered, setHovered] = useState(false);
 
-  // Timer de tiempo transcurrido
-  useEffect(() => {
-    if (!mesa.timerInicio) { setElapsed(''); return; }
-    const tick = () => {
-      setElapsed(formatElapsed(mesa.timerInicio!));
-      setIsOverdue(elapsedMinutes(mesa.timerInicio!) >= 90);
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [mesa.timerInicio]);
+  // Timer compartido: un solo intervalo global tickea "now" cada 60s
+  const now = useNowTick();
+  const elapsed = mesa.timerInicio ? formatElapsedShort(mesa.timerInicio, now) : '';
+  const isOverdue = mesa.timerInicio ? isElapsedAlert(mesa.timerInicio) : false;
 
   const { w, h } = getContenedorSize(mesa.capacidad);
   const forma     = getFormaVisual(mesa.capacidad);
@@ -62,11 +55,16 @@ export const MesaCard = memo(function MesaCard({
   const filterId  = `glow-${mesa.id}`;
   const isUnited  = mesasUnidasNums.length > 0;
 
-  // Anillo de selección: fusión > picking > unida > selección normal
+  // Comensales visibles en tarjeta solo si la mesa está ocupada (estado !== libre)
+  const showComensales = mesa.estado !== 'libre' && !!mesa.personas && mesa.personas > 0;
+  const overCapacity   = !!mesa.personas && mesa.personas > mesa.capacidad;
+
+  // En modo selección: mesas no elegibles se atenúan
+  const dimmed = isMergeMode && !isSelectable;
+
+  // Anillo de selección: selección de fusión > unida > selección normal
   const ringStyle = isMergeSelected
     ? 'ring-2 ring-amber-500 ring-offset-2 ring-offset-zinc-950'
-    : isPickingOrigin
-    ? 'ring-1 ring-amber-500/50 ring-offset-1 ring-offset-zinc-950'
     : isUnited && !isMergeMode
     ? 'ring-1 ring-amber-600/60 ring-offset-1 ring-offset-zinc-950'
     : isSelected && !isMergeMode
@@ -77,7 +75,7 @@ export const MesaCard = memo(function MesaCard({
     <motion.div
       layout
       initial={{ opacity: 0, scale: 0.85 }}
-      animate={{ opacity: 1, scale: 1 }}
+      animate={{ opacity: dimmed ? 0.4 : 1, scale: 1 }}
       transition={{ type: 'spring', stiffness: 320, damping: 24 }}
       className="flex flex-col items-center gap-2 select-none"
       onMouseEnter={() => setHovered(true)}
@@ -85,7 +83,7 @@ export const MesaCard = memo(function MesaCard({
     >
       {/* Contenedor principal de mesa + sillas */}
       <div
-        aria-label={`Mesa ${mesa.numero}, ${TEXTO_ESTADO_MESA[mesa.estado]}${mesa.personas ? `, ${mesa.personas} personas` : ''}`}
+        aria-label={`Mesa ${mesa.numero}, ${TEXTO_ESTADO_MESA[mesa.estado]}${showComensales ? `, ${mesa.personas} comensales` : ''}`}
         className={cn('relative rounded-xl transition-all duration-200', ringStyle)}
         style={{ width: w, height: h }}
       >
@@ -113,19 +111,19 @@ export const MesaCard = memo(function MesaCard({
           </span>
         </div>
 
-        {/* Personas (si aplica) */}
-        {mesa.personas && mesa.personas > 0 && (
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-0.5 pointer-events-none z-[3]">
-            <Users size={9} className="text-white/70" />
-            <span className="text-[10px] font-semibold text-white/70">{mesa.personas}</span>
+        {/* Badge de comensales — esquina superior izquierda, consistente en toda forma */}
+        {showComensales && !isMergeMode && (
+          <div className="absolute top-1 left-1 z-[5] pointer-events-none">
+            <MesaComensalesBadge count={mesa.personas!} overCapacity={overCapacity} />
           </div>
         )}
 
-        {/* Overlay táctil — intercepta todos los gestos */}
+        {/* Overlay táctil — intercepta todos los gestos (desactivado si no es elegible) */}
         <MesaTouchOverlay
           mesa={mesa}
           isMergeMode={isMergeMode}
           isMergeSelected={isMergeSelected}
+          disabled={dimmed}
           onTap={(x, y) => gestures.onTap(mesa.id, x, y)}
           onDoubleTap={() => gestures.onDoubleTap(mesa)}
           onLongPress={(x, y) => gestures.onLongPress(mesa.id, x, y)}
@@ -133,9 +131,23 @@ export const MesaCard = memo(function MesaCard({
           onSwipeRight={() => gestures.onSwipe(mesa.id, 'right')}
         />
 
-        {/* Botón eliminar — solo en hover desktop, z superior al overlay */}
+        {/* Checkbox de selección — visible en modo selección de fusión */}
+        {isMergeMode && isSelectable && (
+          <div
+            className={cn(
+              'absolute -top-2 -left-2 z-[9] w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all pointer-events-none',
+              isMergeSelected
+                ? 'bg-amber-500 border-amber-400 scale-100'
+                : 'bg-zinc-900/90 border-zinc-500 scale-90'
+            )}
+          >
+            {isMergeSelected && <Check size={15} className="text-black" strokeWidth={3} />}
+          </div>
+        )}
+
+        {/* Botón eliminar — solo en hover desktop, fuera de modo selección */}
         <AnimatePresence>
-          {hovered && !isMergeMode && !isPickingOrigin && (
+          {hovered && !isMergeMode && (
             <motion.button
               type="button"
               initial={{ opacity: 0, scale: 0.7 }}
@@ -182,9 +194,9 @@ export const MesaCard = memo(function MesaCard({
           />
         )}
 
-        {/* Tooltip en hover (solo desktop, no en modo fusión ni picking) */}
+        {/* Tooltip en hover (solo desktop, no en modo selección) */}
         <AnimatePresence>
-          {hovered && !isMergeMode && !isPickingOrigin && (
+          {hovered && !isMergeMode && (
             <motion.div
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
@@ -214,13 +226,13 @@ export const MesaCard = memo(function MesaCard({
         </AnimatePresence>
       </div>
 
-      {/* Timer — debajo del contenedor */}
-      {elapsed && (
+      {/* Timer — debajo del contenedor (formato escaneable Xh Ym) */}
+      {elapsed && !isMergeMode && (
         <div
           className={cn(
             'flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold',
             isOverdue
-              ? 'bg-red-500/20 text-red-400 animate-pulse'
+              ? 'bg-amber-500/20 text-amber-400'
               : 'bg-zinc-800/60 text-zinc-400'
           )}
         >

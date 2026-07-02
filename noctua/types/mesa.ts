@@ -37,11 +37,12 @@ export interface MesaQuickSummaryData {
   mesaId: string;
   numero: number;
   capacidad: number;
+  comensales?: number;
   estado: EstadoMesa;
   pedidoId?: string;
   items: Array<{ nombre: string; cantidad: number; subtotal: number }>;
   total: number;
-  tiempoTranscurrido?: string;
+  timerInicio?: Date;
   isLoading: boolean;
   error?: string;
 }
@@ -49,6 +50,7 @@ export interface MesaQuickSummaryData {
 export type ContextMenuAction =
   | 'abrir_pedido'
   | 'cambiar_estado'
+  | 'editar_comensales'
   | 'llamar_mozo'
   | 'marcar_cobrar'
   | 'unir_mesa'
@@ -62,9 +64,9 @@ export interface MesaGestureCallbacks {
   onSwipe: (mesaId: string, direction: 'left' | 'right') => void;
 }
 
-export interface MergeModeState {
-  isPickingOrigin: boolean;
-  isActive: boolean;
-  originMesaId: string | null;
+// Modo selección de mesas para unión: se activa desde el toolbar, el mozo toca
+// 2+ mesas y confirma. Reemplaza el viejo flujo de "elegir origen → tocar otra".
+export interface MergeSelectionState {
+  isSelectionMode: boolean;
   selectedIds: string[];
 }

@@ -4,7 +4,7 @@ import { create } from "zustand";
 import type { Pedido, ItemPedido, EstadoCocina } from "@/types/pedido";
 import type { Dish } from "@/types/dishes";
 import { generateId } from "@/hooks/lib/utils";
-import { crearPedido, obtenerPedidos, obtenerPedidosActivos, actualizarEstadoPedido, eliminarPedido as eliminarPedidoApi } from "@/hooks/lib/api/pedidosApi";
+import { abrirPedidoRow, agregarProductoAPedido, obtenerPedidoPorId, obtenerPedidos, obtenerPedidosActivos, actualizarEstadoPedido, eliminarPedido as eliminarPedidoApi } from "@/hooks/lib/api/pedidosApi";
 import { useMesasStore } from "@/store/mesasStore";
 import { buildInitialDishes } from "@/hooks/lib/dishesMockData";
 import { calculateAllDishesAvailability, calculateMaxAvailable } from "@/lib/recipeCalculator";
@@ -13,7 +13,10 @@ import { useStockStore } from "./stockStore";
 
 interface PedidosState {
   pedidos: Pedido[];
-  pedidoActual: Pedido | null;
+  // Borradores en construcción, indexados por mesaId. Cada borrador contiene
+  // SOLO los ítems aún no enviados a cocina (los ya enviados viven en `pedidos`).
+  // Al estar keyed por mesa, nunca hay "sangrado" de estado entre mesas.
+  borradores: Record<string, Pedido>;
   mesaActivaId: string | null;
   dishes: Dish[];
 
@@ -21,22 +24,27 @@ interface PedidosState {
   cargarPedidosActivos: () => Promise<void>;
   cargarDishes: () => void;
 
-  // Pedido actual (en construcción)
+  // Borrador de pedido (en construcción, por mesa)
   iniciarPedido: (mesaId: string, numeroMesa: number, zona: string, personas: number) => void;
   setMesaActiva: (mesaId: string | null) => void;
-  agregarItem: (item: Omit<ItemPedido, 'subtotal'>) => void;
-  quitarItem: (productoId: string) => void;
-  cambiarCantidad: (productoId: string, cantidad: number) => void;
-  cancelarPedido: () => void;
+  agregarItem: (mesaId: string, item: Omit<ItemPedido, 'subtotal'>) => void;
+  quitarItem: (mesaId: string, productoId: string) => void;
+  cambiarCantidad: (mesaId: string, productoId: string, cantidad: number) => void;
+  cancelarPedido: (mesaId: string) => void;
+  setItemNotas: (mesaId: string, productoId: string, notas: string) => void;
+  getBorrador: (mesaId: string) => Pedido | undefined;
 
-  // Enviar a cocina
-  enviarPedido: () => Promise<Pedido | null>;
+  // Enviar a cocina (persiste el borrador de la mesa)
+  enviarPedido: (mesaId: string) => Promise<Pedido | null>;
 
   // Actualizar estado (desde cocina)
   actualizarEstadoCocina: (pedidoId: string, estado: EstadoCocina) => Promise<void>;
 
   // Eliminar pedido
   eliminarPedido: (pedidoId: string) => Promise<void>;
+
+  // Comensales
+  setComensalesPedido: (mesaId: string, comensales: number) => void;
 
   // Getters
   getPedidoPorMesa: (mesaId: string) => Pedido | undefined;
@@ -50,7 +58,7 @@ interface PedidosState {
 
 export const usePedidosStore = create<PedidosState>((set, get) => ({
   pedidos: [],
-  pedidoActual: null,
+  borradores: {},
   mesaActivaId: null,
   dishes: buildInitialDishes(),
 
@@ -74,6 +82,15 @@ export const usePedidosStore = create<PedidosState>((set, get) => ({
         );
         return { pedidos: [...otrosPedidos, ...pedidos] };
       });
+
+      // Hidratar comensales en las mesas desde el pedido activo (la tabla mesas
+      // no persiste personas, pero pedidos.comensales sí → así el badge sobrevive al refresh)
+      const mesasStore = useMesasStore.getState();
+      for (const p of pedidos) {
+        if (p.personas && p.personas > 0) {
+          mesasStore.setPersonasMesa(p.mesaId, p.personas);
+        }
+      }
     } catch (error) {
       console.error("Error cargando pedidos activos:", error);
     }
@@ -86,120 +103,154 @@ export const usePedidosStore = create<PedidosState>((set, get) => ({
     set({ dishes: dishesWithAvailability });
   },
 
-  iniciarPedido: (mesaId, numeroMesa, zona, personas) => {
-    const existente = get().pedidos.find((p) => p.mesaId === mesaId && p.estado !== 'entregado');
-    if (existente) {
-      set({ pedidoActual: existente, mesaActivaId: mesaId });
-      return;
-    }
-    set({
-      pedidoActual: {
-        id: generateId(),
-        mesaId,
-        numeroMesa,
-        zona,
-        items: [],
-        total: 0,
-        estado: 'pendiente',
-        creadoEn: new Date(),
-        actualizadoEn: new Date(),
-        personas,
-      },
-      mesaActivaId: mesaId,
-    });
-  },
+  iniciarPedido: (mesaId, numeroMesa, zona, personas) =>
+    set((state) => {
+      const existente = state.borradores[mesaId];
+      // Reusa el borrador si ya existía (recuperación al volver a la mesa),
+      // actualizando solo los metadatos; si no, crea uno vacío.
+      const borrador: Pedido = existente
+        ? { ...existente, numeroMesa, zona, personas: personas || existente.personas }
+        : {
+            id: generateId(),
+            mesaId,
+            numeroMesa,
+            zona,
+            items: [],
+            total: 0,
+            estado: 'pendiente',
+            creadoEn: new Date(),
+            actualizadoEn: new Date(),
+            personas,
+          };
+      return { borradores: { ...state.borradores, [mesaId]: borrador }, mesaActivaId: mesaId };
+    }),
 
   setMesaActiva: (mesaId) => set({ mesaActivaId: mesaId }),
 
-  agregarItem: (item) =>
+  agregarItem: (mesaId, item) =>
     set((state) => {
-      if (!state.pedidoActual) return {};
-      const existIdx = state.pedidoActual.items.findIndex((i) => i.productoId === item.productoId);
+      const b = state.borradores[mesaId];
+      if (!b) return {};
+      const existIdx = b.items.findIndex((i) => i.productoId === item.productoId);
       let newItems: ItemPedido[];
       if (existIdx >= 0) {
-        newItems = state.pedidoActual.items.map((i, idx) =>
+        newItems = b.items.map((i, idx) =>
           idx === existIdx
-            ? { ...i, cantidad: i.cantidad + item.cantidad, subtotal: (i.cantidad + item.cantidad) * i.precioUnitario }
+            ? {
+                ...i,
+                cantidad: i.cantidad + item.cantidad,
+                subtotal: (i.cantidad + item.cantidad) * i.precioUnitario,
+                notas: item.notas || i.notas,
+              }
             : i
         );
       } else {
-        newItems = [...state.pedidoActual.items, { ...item, subtotal: item.cantidad * item.precioUnitario }];
+        newItems = [...b.items, { ...item, subtotal: item.cantidad * item.precioUnitario }];
       }
       const total = newItems.reduce((acc, i) => acc + i.subtotal, 0);
-      return { pedidoActual: { ...state.pedidoActual, items: newItems, total } };
+      return {
+        borradores: { ...state.borradores, [mesaId]: { ...b, items: newItems, total, actualizadoEn: new Date() } },
+      };
     }),
 
-  quitarItem: (productoId) =>
+  quitarItem: (mesaId, productoId) =>
     set((state) => {
-      if (!state.pedidoActual) return {};
-      const newItems = state.pedidoActual.items.filter((i) => i.productoId !== productoId);
+      const b = state.borradores[mesaId];
+      if (!b) return {};
+      const newItems = b.items.filter((i) => i.productoId !== productoId);
       const total = newItems.reduce((acc, i) => acc + i.subtotal, 0);
-      return { pedidoActual: { ...state.pedidoActual, items: newItems, total } };
+      return { borradores: { ...state.borradores, [mesaId]: { ...b, items: newItems, total } } };
     }),
 
-  cambiarCantidad: (productoId, cantidad) =>
+  cambiarCantidad: (mesaId, productoId, cantidad) =>
     set((state) => {
-      if (!state.pedidoActual) return {};
-      if (cantidad <= 0) {
-        const newItems = state.pedidoActual.items.filter((i) => i.productoId !== productoId);
-        const total = newItems.reduce((acc, i) => acc + i.subtotal, 0);
-        return { pedidoActual: { ...state.pedidoActual, items: newItems, total } };
-      }
-      const newItems = state.pedidoActual.items.map((i) =>
+      const b = state.borradores[mesaId];
+      if (!b) return {};
+      // Quitar un ítem es una acción explícita (quitarItem), no "bajar a 0"
+      if (cantidad < 1) return {};
+      const newItems = b.items.map((i) =>
         i.productoId === productoId
           ? { ...i, cantidad, subtotal: cantidad * i.precioUnitario }
           : i
       );
       const total = newItems.reduce((acc, i) => acc + i.subtotal, 0);
-      return { pedidoActual: { ...state.pedidoActual, items: newItems, total } };
+      return { borradores: { ...state.borradores, [mesaId]: { ...b, items: newItems, total } } };
     }),
 
-  cancelarPedido: () => set({ pedidoActual: null }),
+  cancelarPedido: (mesaId) =>
+    set((state) => {
+      const borradores = { ...state.borradores };
+      delete borradores[mesaId];
+      return {
+        borradores,
+        mesaActivaId: state.mesaActivaId === mesaId ? null : state.mesaActivaId,
+      };
+    }),
 
-  enviarPedido: async () => {
-    const { pedidoActual, pedidos } = get();
-    if (!pedidoActual || pedidoActual.items.length === 0) return null;
+  setItemNotas: (mesaId, productoId, notas) =>
+    set((state) => {
+      const b = state.borradores[mesaId];
+      if (!b) return {};
+      const newItems = b.items.map((i) =>
+        i.productoId === productoId ? { ...i, notas } : i
+      );
+      return { borradores: { ...state.borradores, [mesaId]: { ...b, items: newItems } } };
+    }),
 
-    // Si el pedido ya tiene un UUID de Supabase (es decir, ya existía en la DB)
-    // idealmente aquí haríamos una actualización en la base de datos (UPDATE).
-    // Si no lo tiene (es un generateId() temporal), creamos uno nuevo.
-    const isNew = pedidoActual.id.length < 20; 
+  getBorrador: (mesaId) => get().borradores[mesaId],
 
-    let pedidoFinal: Pedido;
+  enviarPedido: async (mesaId) => {
+    const borrador = get().borradores[mesaId];
+    if (!borrador || borrador.items.length === 0) return null;
 
-    if (isNew) {
-      const res = await crearPedido({
-        mesaId: pedidoActual.mesaId,
-        numeroMesa: pedidoActual.numeroMesa,
-        zona: pedidoActual.zona,
-        personas: pedidoActual.personas,
-        total: pedidoActual.total,
-        items: pedidoActual.items.map(i => ({
-          productoId: i.productoId,
-          nombre: i.nombre,
-          cantidad: i.cantidad,
-          precioUnitario: i.precioUnitario,
-          subtotal: i.subtotal,
-          notas: i.notas
-        }))
-      });
-      pedidoFinal = res.pedido;
-    } else {
-      // (Si hubiera una API de actualización de items, iría aquí)
-      // Por ahora para este alcance, solo le devolvemos su estado a pendiente si se edita.
-      await actualizarEstadoPedido(pedidoActual.id, 'pendiente');
-      pedidoFinal = { ...pedidoActual, estado: 'pendiente', actualizadoEn: new Date() };
+    // Abre (o reutiliza) el pedido de la mesa. El backend no duplica: si ya hay
+    // un pedido abierto para la mesa, devuelve ese.
+    const pedidoRow = await abrirPedidoRow(borrador.mesaId, borrador.personas);
+    const pedidoId = String(pedidoRow.id);
+    const teniaItems = (pedidoRow.items?.length ?? pedidoRow.detalles?.length ?? 0) > 0;
+
+    // Envía los ítems uno a uno. Cada uno descuenta stock en el backend; si uno
+    // falla (ej: sin stock), los ya enviados quedan persistidos y se quitan del
+    // borrador, de modo que un reintento no los duplica.
+    let enviados = 0;
+    try {
+      for (const item of [...borrador.items]) {
+        await agregarProductoAPedido(pedidoId, {
+          productoId: item.productoId,
+          cantidad: item.cantidad,
+          notas: item.notas,
+        });
+        enviados++;
+        set((state) => {
+          const b = state.borradores[mesaId];
+          if (!b) return {};
+          const items = b.items.filter((i) => i.productoId !== item.productoId);
+          const total = items.reduce((acc, i) => acc + i.subtotal, 0);
+          return { borradores: { ...state.borradores, [mesaId]: { ...b, items, total } } };
+        });
+      }
+    } catch (err) {
+      // Si no se envió ningún ítem y el pedido lo creamos nosotros (estaba vacío),
+      // eliminarlo para no dejar un pedido vacío colgando en cocina.
+      if (enviados === 0 && !teniaItems) {
+        try { await eliminarPedidoApi(pedidoId); } catch { /* noop */ }
+      }
+      throw err;
     }
 
-    const existIdx = pedidos.findIndex((p) => p.id === pedidoFinal.id);
-    const newPedidos = existIdx >= 0
-      ? pedidos.map((p) => (p.id === pedidoFinal.id ? pedidoFinal : p))
-      : [...pedidos, pedidoFinal];
+    // Todos los ítems se enviaron: traer el pedido completo y limpiar el borrador.
+    const pedidoFinal = await obtenerPedidoPorId(pedidoId);
+    set((state) => {
+      const existIdx = state.pedidos.findIndex((p) => p.id === pedidoFinal.id);
+      const pedidos =
+        existIdx >= 0
+          ? state.pedidos.map((p) => (p.id === pedidoFinal.id ? pedidoFinal : p))
+          : [...state.pedidos, pedidoFinal];
+      const borradores = { ...state.borradores };
+      delete borradores[mesaId];
+      return { pedidos, borradores };
+    });
 
-    set({ pedidos: newPedidos, pedidoActual: null });
-
-    // Sincronización con el store de mesas
-    // (el backend abrirPedido ya pone la mesa en esperando_pedido → realtime propaga)
     useMesasStore.getState().asignarPedido(pedidoFinal.mesaId, pedidoFinal.id);
     useMesasStore.getState().setEstadoMesa(pedidoFinal.mesaId, 'esperando_pedido');
 
@@ -245,6 +296,19 @@ export const usePedidosStore = create<PedidosState>((set, get) => ({
       throw e;
     }
   },
+
+  setComensalesPedido: (mesaId, comensales) =>
+    set((state) => {
+      const borradores = state.borradores[mesaId]
+        ? { ...state.borradores, [mesaId]: { ...state.borradores[mesaId], personas: comensales } }
+        : state.borradores;
+      return {
+        pedidos: state.pedidos.map((p) =>
+          p.mesaId === mesaId ? { ...p, personas: comensales } : p
+        ),
+        borradores,
+      };
+    }),
 
   getPedidoPorMesa: (mesaId) =>
     get().pedidos.find((p) => p.mesaId === mesaId),

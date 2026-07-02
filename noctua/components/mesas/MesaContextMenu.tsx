@@ -135,10 +135,17 @@ export const MesaContextMenu = memo(function MesaContextMenu({
       {/* Acciones del menú */}
       <div className="flex flex-col py-2">
         <MenuItem
-          label="Abrir pedido"
+          label={mesa.estado === 'libre' ? 'Agregar pedido' : 'Ver pedido'}
           icon="📋"
           onClick={() => onAction('abrir_pedido', mesa)}
         />
+        {mesa.estado !== 'libre' && (
+          <MenuItem
+            label="Editar comensales"
+            icon="👥"
+            onClick={() => onAction('editar_comensales', mesa)}
+          />
+        )}
         <MenuItem
           label="Cambiar estado"
           icon="🔄"

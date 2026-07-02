@@ -1,173 +1,298 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
-import { useStockStore } from '@/store/stockStore';
-import { useDishesStore } from '@/store/dishesStore';
+import { Suspense, useEffect, useMemo, useState, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { ArrowLeft, Search, Users, Clock, ShoppingBag, ChevronUp, ChevronDown } from 'lucide-react';
 import { usePedidosStore } from '@/store/pedidosStore';
-import { ShoppingCart, ArrowLeft } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { DishCustomizerPanel } from '@/components/pedidos/DishCustomizerPanel';
-import type { Dish } from '@/types/dishes';
+import { useMesasStore } from '@/store/mesasStore';
+import { useProductosCatalog } from '@/hooks/useProductosCatalog';
+import { PedidoOrderSummary } from '@/components/pedidos/PedidoOrderSummary';
+import { useNowTick, formatElapsedShort } from '@/hooks/useMesaTimer';
+import { formatARS } from '@/hooks/lib/utils';
+import { toast } from '@/components/ui/Toast';
 
-const CATEGORIES: { value: 'all' | any; label: string }[] = [
-  { value: 'all', label: 'Todos' },
-  { value: 'entradas', label: 'Entradas' },
-  { value: 'hamburguesas', label: 'Hamburguesas' },
-  { value: 'sandwiches', label: 'Sandwiches' },
-  { value: 'minutas', label: 'Minutas' },
-  { value: 'pastas', label: 'Pastas' },
-  { value: 'pizzas', label: 'Pizzas' },
-  { value: 'ensaladas', label: 'Ensaladas' },
-  { value: 'postres', label: 'Postres' },
-  { value: 'bebidas_sin_alcohol', label: 'Bebidas sin alcohol' },
-  { value: 'bebidas_con_alcohol', label: 'Bebidas con alcohol' },
-  { value: 'cafeteria', label: 'Cafetería' },
-];
+// Estados de pedido que consideramos "abiertos" (ya enviados pero aún en curso)
+const ESTADOS_ABIERTOS = ['pendiente', 'preparando', 'listo'];
 
-export default function PedidosPage() {
+function PedidoContent() {
   const router = useRouter();
-  const { categories } = useStockStore();
-  const { recalculateAvailability, getDishesByCategory } = useDishesStore();
-  const { pedidoActual, agregarItem } = usePedidosStore();
-  
-  const allIngredients = useMemo(() => 
-    categories.flatMap(cat => cat.ingredients),
-  [categories]);
+  const searchParams = useSearchParams();
+  const mesaId = searchParams.get('mesa');
 
+  const now = useNowTick();
+
+  const mesas = useMesasStore((s) => s.mesas);
+  const cargarMesas = useMesasStore((s) => s.cargarMesas);
+
+  const iniciarPedido = usePedidosStore((s) => s.iniciarPedido);
+  const agregarItem = usePedidosStore((s) => s.agregarItem);
+  const cambiarCantidad = usePedidosStore((s) => s.cambiarCantidad);
+  const quitarItem = usePedidosStore((s) => s.quitarItem);
+  const setItemNotas = usePedidosStore((s) => s.setItemNotas);
+  const enviarPedido = usePedidosStore((s) => s.enviarPedido);
+  const cargarPedidosActivos = usePedidosStore((s) => s.cargarPedidosActivos);
+
+  // Estado scoped por mesa: nunca hay sangrado entre mesas
+  const borrador = usePedidosStore((s) => (mesaId ? s.borradores[mesaId] : undefined));
+  const pedidoEnviado = usePedidosStore((s) =>
+    mesaId ? s.pedidos.find((p) => p.mesaId === mesaId && ESTADOS_ABIERTOS.includes(p.estado)) : undefined
+  );
+
+  const mesa = useMemo(() => mesas.find((m) => m.id === mesaId), [mesas, mesaId]);
+
+  const { categorias, isLoading, isError, refetch: refetchCatalogo } = useProductosCatalog();
+
+  const [categoriaActiva, setCategoriaActiva] = useState<string>('all');
+  const [busqueda, setBusqueda] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  // Carga inicial: mesas (para el header) + pedidos activos (ítems ya en cocina)
   useEffect(() => {
-    recalculateAvailability(allIngredients);
-  }, [allIngredients, recalculateAvailability]);
+    if (mesas.length === 0) cargarMesas();
+    cargarPedidosActivos();
+  }, [mesas.length, cargarMesas, cargarPedidosActivos]);
 
-  const [selectedCategory, setSelectedCategory] = useState<'all' | any>('all');
-  const [isCustomizerOpen, setIsCustomizerOpen] = useState(false);
-  const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
+  // Garantiza un borrador para esta mesa y actualiza sus metadatos cuando la mesa carga
+  useEffect(() => {
+    if (!mesaId) return;
+    const m = mesas.find((x) => x.id === mesaId);
+    const personasActual = m?.personas ?? borrador?.personas ?? 1;
+    iniciarPedido(mesaId, m?.numero ?? borrador?.numeroMesa ?? 0, m?.zona ?? borrador?.zona ?? 'SALÓN PRINCIPAL', personasActual);
+    // Solo depende de mesaId y de la carga de mesas
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mesaId, mesas]);
 
-  const filteredDishes = getDishesByCategory(selectedCategory);
+  const draftItems = borrador?.items ?? [];
+  const sentItems = pedidoEnviado?.items ?? [];
+  const comensales = mesa?.personas ?? borrador?.personas;
+  const elapsed = mesa?.timerInicio ? formatElapsedShort(mesa.timerInicio, now) : undefined;
 
-  const handleSelectDish = (dish: Dish) => {
-    setSelectedDish(dish);
-    setIsCustomizerOpen(true);
-  };
+  // Productos filtrados por categoría + búsqueda
+  const productosVisibles = useMemo(() => {
+    const todos =
+      categoriaActiva === 'all'
+        ? categorias.flatMap((c) => c.productos)
+        : categorias.find((c) => c.id === categoriaActiva)?.productos ?? [];
+    const q = busqueda.trim().toLowerCase();
+    return q ? todos.filter((p) => p.nombre.toLowerCase().includes(q)) : todos;
+  }, [categorias, categoriaActiva, busqueda]);
 
-  const handleAddToOrder = (data: any) => {
-    // Convert data to ItemPedido format expected by the store
-    const item = {
-      productoId: data.dishId || data.id,
-      nombre: data.name || data.dishName,
-      cantidad: data.quantity || 1,
-      precioUnitario: data.basePrice || data.price,
-      notas: data.notes || ''
-    };
-    agregarItem(item);
-    setIsCustomizerOpen(false);
-    setSelectedDish(null);
-  };
+  const handleAdd = useCallback(
+    (productoId: string, nombre: string, precio: number) => {
+      if (!mesaId) return;
+      // Tras enviar a cocina el borrador se limpia; recrearlo antes de agregar
+      // para poder seguir sumando productos a la misma mesa.
+      if (!usePedidosStore.getState().borradores[mesaId]) {
+        const m = mesas.find((x) => x.id === mesaId);
+        iniciarPedido(mesaId, m?.numero ?? 0, m?.zona ?? 'SALÓN PRINCIPAL', m?.personas ?? 1);
+      }
+      agregarItem(mesaId, { productoId, nombre, cantidad: 1, precioUnitario: precio, notas: '' });
+    },
+    [mesaId, mesas, iniciarPedido, agregarItem]
+  );
 
-  return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => router.back()}
-            className="p-2 rounded-lg bg-[#202020] text-white hover:bg-[#252525] transition-colors"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-            <h1 className="text-3xl font-bold text-white mb-2">Tomar Pedido</h1>
-            <p className="text-[#676b67]">Selecciona platos y personaliza</p>
-          </div>
+  const handleEnviar = useCallback(async () => {
+    if (!mesaId) return;
+    if (!borrador || borrador.items.length === 0) {
+      toast.error('Pedido vacío', 'Agregá al menos un producto antes de enviar');
+      return;
+    }
+    setEnviando(true);
+    try {
+      const res = await enviarPedido(mesaId);
+      if (!res) {
+        toast.error('No se pudo enviar', 'El pedido quedó vacío');
+        return;
+      }
+      toast.success('Pedido enviado a cocina', `Mesa ${res.numeroMesa} · ${formatARS(res.total)}`);
+      cargarPedidosActivos();
+      refetchCatalogo(); // el stock cambió → refrescar disponibilidad del catálogo
+      setSheetOpen(false);
+    } catch (err) {
+      // Surfacea el mensaje del backend (ej: "No hay stock suficiente de X").
+      // Los ítems que sí entraron ya se quitaron del borrador; el resto sigue editable.
+      const msg = err instanceof Error && err.message ? err.message : 'Revisá la conexión e intentá de nuevo';
+      toast.error('No se pudo enviar el pedido', msg);
+      cargarPedidosActivos();
+      refetchCatalogo();
+    } finally {
+      setEnviando(false);
+    }
+  }, [mesaId, borrador, enviarPedido, cargarPedidosActivos, refetchCatalogo]);
+
+  // Sin mesa en la URL: no se puede construir un pedido sin saber a qué mesa pertenece
+  if (!mesaId) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
+        <ShoppingBag size={36} className="text-zinc-700" />
+        <div>
+          <p className="text-white font-semibold">No se indicó ninguna mesa</p>
+          <p className="text-[#676b67] text-sm mt-1">Elegí una mesa desde el plano para tomar su pedido.</p>
         </div>
-        <button 
-          onClick={() => router.push('/dashboard/pedido')}
-          className="px-4 py-2 rounded-lg bg-violet-600 text-white flex items-center gap-2 hover:bg-violet-700 transition-colors"
+        <button
+          onClick={() => router.push('/dashboard/mesas')}
+          className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500 transition-colors"
         >
-          <ShoppingCart size={20} />
-          <span>Ver pedido ({pedidoActual?.items.length || 0})</span>
+          Ir al plano de mesas
         </button>
       </div>
+    );
+  }
 
-      <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-        {CATEGORIES.map(cat => (
-          <button
-            key={cat.value}
-            onClick={() => setSelectedCategory(cat.value)}
-            className={`px-4 py-2 rounded-full text-sm transition-all whitespace-nowrap ${
-              selectedCategory === cat.value
-                ? 'bg-violet-600 text-white'
-                : 'bg-[#202020] text-[#676b67] hover:text-white'
-            }`}
-          >
-            {cat.label}
-          </button>
-        ))}
+  const summary = (
+    <PedidoOrderSummary
+      draftItems={draftItems}
+      sentItems={sentItems}
+      draftTotal={borrador?.total ?? 0}
+      sentTotal={pedidoEnviado?.total ?? 0}
+      enviando={enviando}
+      onInc={(id) => { const it = draftItems.find((i) => i.productoId === id); if (it) cambiarCantidad(mesaId, id, it.cantidad + 1); }}
+      onDec={(id) => { const it = draftItems.find((i) => i.productoId === id); if (it && it.cantidad > 1) cambiarCantidad(mesaId, id, it.cantidad - 1); }}
+      onRemove={(id) => quitarItem(mesaId, id)}
+      onSetNotas={(id, notas) => setItemNotas(mesaId, id, notas)}
+      onEnviar={handleEnviar}
+    />
+  );
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-6rem)]">
+      {/* Header fijo con identidad de mesa — siempre visible */}
+      <div className="flex items-center gap-3 pb-3 border-b border-[#1a1a1a] flex-shrink-0">
+        <button
+          onClick={() => router.push('/dashboard/mesas')}
+          className="p-2 rounded-lg bg-[#151515] text-white hover:bg-[#202020] transition-colors flex-shrink-0"
+          aria-label="Volver al plano de mesas"
+        >
+          <ArrowLeft size={18} />
+        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-baseline gap-2">
+            <span className="text-amber-400 font-black text-2xl leading-none">Mesa {mesa?.numero ?? borrador?.numeroMesa ?? '—'}</span>
+          </div>
+          <span className="text-zinc-600 text-xs uppercase tracking-widest">{mesa?.zona ?? borrador?.zona}</span>
+          {comensales ? (
+            <span className="flex items-center gap-1 text-zinc-400 text-xs">
+              <Users size={12} /> {comensales}
+            </span>
+          ) : null}
+          {elapsed && (
+            <span className="flex items-center gap-1 text-zinc-400 text-xs">
+              <Clock size={12} /> {elapsed}
+            </span>
+          )}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
-        {filteredDishes.map(dish => (
-          <div
-            key={dish.id}
-            className={`bg-[#151515] border border-[#252525] rounded-xl p-6 transition-all ${
-              dish.isAvailable && dish.maxAvailable > 0 ? 'cursor-pointer hover:border-violet-500/50' : 'opacity-60 cursor-not-allowed'
-            }`}
-            onClick={() => dish.isAvailable && dish.maxAvailable > 0 && handleSelectDish(dish)}
-          >
-            <div className="flex justify-between items-start mb-2">
-              <h3 className="text-white font-semibold text-lg">{dish.name}</h3>
-              <span className="text-white font-bold text-xl">${dish.price.toFixed(2)}</span>
-            </div>
-            
-            {dish.description && (
-              <p className="text-[#676b67] text-sm mb-3">{dish.description}</p>
-            )}
+      {/* Cuerpo: catálogo (izq) + resumen (der, en pantallas grandes) */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 pt-3">
+        {/* Catálogo */}
+        <div className="flex flex-col min-h-0">
+          {/* Búsqueda */}
+          <div className="relative mb-3 flex-shrink-0">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
+            <input
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar producto..."
+              className="w-full bg-[#0d0d0d] border border-[#222] rounded-lg pl-9 pr-3 py-2 text-white text-sm outline-none focus:border-amber-500/50"
+            />
+          </div>
 
-            <div className="flex items-center gap-2 mb-3">
-              <span className="px-2 py-1 rounded-full text-xs bg-[#202020] text-[#676b67]">
-                {dish.category}
-              </span>
-              {dish.isAvailable && dish.maxAvailable > 0 ? (
-                <span className="px-2 py-1 rounded-full text-xs bg-green-900/30 text-green-300">
-                  {dish.maxAvailable} disponibles
-                </span>
-              ) : (
-                <span className="px-2 py-1 rounded-full text-xs bg-red-900/30 text-red-300">
-                  Agotado
-                </span>
-              )}
-            </div>
+          {/* Categorías */}
+          <div className="flex gap-2 mb-3 overflow-x-auto pb-1 flex-shrink-0">
+            <CategoriaChip label="Todos" active={categoriaActiva === 'all'} onClick={() => setCategoriaActiva('all')} />
+            {categorias.map((c) => (
+              <CategoriaChip key={c.id} label={c.nombre} active={categoriaActiva === c.id} onClick={() => setCategoriaActiva(c.id)} />
+            ))}
+          </div>
 
-            {dish.recipe.length > 0 && (
-              <div className="text-xs text-[#676b67]">
-                {dish.recipe.slice(0, 3).map((ing, idx) => (
-                  <span key={idx} className="mr-2">{ing.ingredientName}</span>
-                ))}
-                {dish.recipe.length > 3 && (
-                  <span>+{dish.recipe.length - 3} más</span>
-                )}
+          {/* Grid de productos */}
+          <div className="flex-1 min-h-0 overflow-y-auto pb-24 lg:pb-2">
+            {isLoading ? (
+              <p className="text-[#676b67] text-sm py-12 text-center">Cargando productos...</p>
+            ) : isError ? (
+              <p className="text-red-400 text-sm py-12 text-center">No se pudieron cargar los productos.</p>
+            ) : productosVisibles.length === 0 ? (
+              <p className="text-[#676b67] text-sm py-12 text-center">
+                {busqueda ? 'Sin resultados para tu búsqueda' : 'No hay productos en esta categoría'}
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+                {productosVisibles.map((p) => {
+                  const disponible = p.disponible;
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => disponible && handleAdd(p.id, p.nombre, p.precio)}
+                      disabled={!disponible}
+                      className={`text-left bg-[#111] border border-[#222] rounded-xl p-3 transition-all ${
+                        disponible ? 'hover:border-amber-500/50 active:scale-[0.98]' : 'opacity-50 cursor-not-allowed'
+                      }`}
+                    >
+                      <p className="text-white text-sm font-semibold leading-tight line-clamp-2">{p.nombre}</p>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-white font-bold text-sm">{formatARS(p.precio)}</span>
+                        {!disponible && <span className="text-[10px] text-red-400">Agotado</span>}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
-        ))}
+        </div>
 
-        {filteredDishes.length === 0 && (
-          <div className="col-span-full text-center py-12">
-            <p className="text-[#676b67]">No hay platos disponibles</p>
+        {/* Resumen — columna derecha en desktop */}
+        <div className="hidden lg:flex flex-col min-h-0 bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl overflow-hidden">
+          {summary}
+        </div>
+      </div>
+
+      {/* Resumen — bottom sheet en tablet/portrait y mobile */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40">
+        {/* Barra colapsada */}
+        <button
+          onClick={() => setSheetOpen((v) => !v)}
+          className="w-full flex items-center justify-between bg-[#0d0d0d] border-t border-[#222] px-4 py-3"
+        >
+          <span className="flex items-center gap-2 text-white text-sm font-semibold">
+            <ShoppingBag size={16} className="text-amber-400" />
+            {draftItems.length} por enviar
+          </span>
+          <span className="flex items-center gap-2 text-white text-sm font-mono">
+            {formatARS(borrador?.total ?? 0)}
+            {sheetOpen ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+          </span>
+        </button>
+        {/* Panel expandido */}
+        {sheetOpen && (
+          <div className="bg-[#0a0a0a] border-t border-[#1a1a1a] max-h-[70vh] flex flex-col">
+            {summary}
           </div>
         )}
       </div>
-
-      {selectedDish && (
-        <DishCustomizerPanel
-          isOpen={isCustomizerOpen}
-          onClose={() => {
-            setIsCustomizerOpen(false);
-            setSelectedDish(null);
-          }}
-          dish={selectedDish}
-          allIngredients={allIngredients}
-          onAddToOrder={handleAddToOrder}
-        />
-      )}
     </div>
+  );
+}
+
+function CategoriaChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+        active ? 'bg-amber-600 text-white' : 'bg-[#151515] text-[#676b67] hover:text-white'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+export default function PedidoPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-[#676b67]">Cargando...</div>}>
+      <PedidoContent />
+    </Suspense>
   );
 }

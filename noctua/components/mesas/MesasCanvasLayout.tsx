@@ -3,11 +3,17 @@
 
 import { useRef, useEffect, useState, useCallback, memo, useMemo, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { Move, Lock, RotateCcw, Link2, X } from 'lucide-react';
+import { Move } from 'lucide-react';
 import { MesaCard } from './MesaCard';
+import { MesaSelectionToolbar } from './MesaSelectionToolbar';
 import { getFormaVisual } from './mesaEstadoColors';
 import { useMesasStore } from '@/store/mesasStore';
 import type { Mesa, MesaGestureCallbacks } from '@/types/mesa';
+
+/** Una mesa es elegible para unión si no forma parte ya de un grupo unido. */
+function esElegibleParaUnir(mesa: Mesa): boolean {
+  return !mesa.mesasUnidas || mesa.mesasUnidas.length === 0;
+}
 
 // ── Dimensiones del canvas ────────────────────────────────────────────────────
 const CANVAS_W = 1600;
@@ -112,31 +118,25 @@ const NOOP_GESTURES: MesaGestureCallbacks = {
 
 // ── Props del componente ──────────────────────────────────────────────────────
 interface MesasCanvasLayoutProps {
-  mesas:              Mesa[];
-  mesasSeleccionadas: string[];
-  mergeSelectedIds:   string[];
-  isMergeMode:        boolean;
-  isPickingOrigin:    boolean;
-  originNumero?:      number;
-  mozoRequeridoIds:   Set<string>;
-  gestures:           MesaGestureCallbacks;
-  onDelete:           (id: string) => void;
-  onStartMerge:       () => void;
-  onCancelMerge:      () => void;
+  mesas:                 Mesa[];
+  mesasSeleccionadas:    string[];
+  mergeSelectedIds:      string[];
+  isSelectionMode:       boolean;
+  mozoRequeridoIds:      Set<string>;
+  gestures:              MesaGestureCallbacks;
+  onDelete:              (id: string) => void;
+  onToggleSelectionMode: () => void;
 }
 
 export const MesasCanvasLayout = memo(function MesasCanvasLayout({
   mesas,
   mesasSeleccionadas,
   mergeSelectedIds,
-  isMergeMode,
-  isPickingOrigin,
-  originNumero,
+  isSelectionMode,
   mozoRequeridoIds,
   gestures,
   onDelete,
-  onStartMerge,
-  onCancelMerge,
+  onToggleSelectionMode,
 }: MesasCanvasLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale]       = useState(1);
@@ -237,59 +237,25 @@ export const MesasCanvasLayout = memo(function MesasCanvasLayout({
     }
   }, [mesas, moverMesa]);
 
+  // Hay algo que restablecer si alguna mesa tiene posición personalizada guardada
+  const canReset = useMemo(
+    () => mesas.some((m) => m.posicion.x > 50 || m.posicion.y > 50),
+    [mesas]
+  );
+
   return (
     <div className="space-y-2">
-      {/* Barra superior del canvas */}
-      <div className="flex items-center justify-between px-1">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-mono tracking-[0.3em] uppercase text-zinc-600">
-            Plano de planta
-          </span>
-          <span className="text-zinc-700 text-[10px]">·</span>
-          <span className="text-[10px] font-mono text-zinc-700">
-            {mesas.length} mesas
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Botón unir/cancelar unión */}
-          {!editMode && (
-            <button
-              onClick={isMergeMode || isPickingOrigin ? onCancelMerge : onStartMerge}
-              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all font-medium
-                ${isMergeMode || isPickingOrigin
-                  ? 'bg-red-500/10 border-red-500/40 text-red-400 hover:bg-red-500/20'
-                  : 'bg-transparent border-zinc-800 text-zinc-600 hover:border-zinc-600 hover:text-zinc-400'
-                }`}
-            >
-              {isMergeMode || isPickingOrigin ? <X size={11} /> : <Link2 size={11} />}
-              {isMergeMode || isPickingOrigin ? 'Cancelar unión' : 'Unir mesas'}
-            </button>
-          )}
-          <button
-            onClick={handleResetPositions}
-            disabled={resetting || isMergeMode || isPickingOrigin}
-            title="Restablecer todas las posiciones a la grilla automática"
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all font-medium
-              bg-transparent border-zinc-800 text-zinc-600 hover:border-zinc-600 hover:text-zinc-400
-              disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <RotateCcw size={11} className={resetting ? 'animate-spin' : ''} />
-            Restablecer
-          </button>
-          <button
-            onClick={() => setEditMode((v) => !v)}
-            disabled={isMergeMode || isPickingOrigin}
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all font-medium
-              ${editMode
-                ? 'bg-amber-600/15 border-amber-500/40 text-amber-400'
-                : 'bg-transparent border-zinc-800 text-zinc-600 hover:border-zinc-600 hover:text-zinc-400'
-              } disabled:opacity-40 disabled:cursor-not-allowed`}
-          >
-            {editMode ? <Lock size={11} /> : <Move size={11} />}
-            {editMode ? 'Posicionando' : 'Mover mesas'}
-          </button>
-        </div>
-      </div>
+      {/* Toolbar del plano — 3 acciones centradas */}
+      <MesaSelectionToolbar
+        mesaCount={mesas.length}
+        isSelectionMode={isSelectionMode}
+        onToggleSelectionMode={onToggleSelectionMode}
+        editMode={editMode}
+        onToggleEditMode={() => setEditMode((v) => !v)}
+        onReset={handleResetPositions}
+        resetting={resetting}
+        canReset={canReset}
+      />
 
       {/* Canvas wrapper — escala responsive */}
       <div
@@ -352,9 +318,9 @@ export const MesasCanvasLayout = memo(function MesasCanvasLayout({
                 <MesaCard
                   mesa={mesa}
                   isSelected={mesasSeleccionadas.includes(mesa.id)}
-                  isMergeMode={(isMergeMode || isPickingOrigin) && !editMode}
+                  isMergeMode={isSelectionMode && !editMode}
                   isMergeSelected={mergeSelectedIds.includes(mesa.id)}
-                  isPickingOrigin={isPickingOrigin && !editMode}
+                  isSelectable={esElegibleParaUnir(mesa)}
                   isMozoRequerido={mozoRequeridoIds.has(mesa.id)}
                   mesasUnidasNums={getMesasUnidasNums(mesa)}
                   gestures={editMode ? NOOP_GESTURES : gestures}
@@ -379,47 +345,23 @@ export const MesasCanvasLayout = memo(function MesasCanvasLayout({
             </div>
           )}
 
-          {/* Overlay de picking de origen — fondo oscuro bajo las mesas */}
-          {isPickingOrigin && (
-            <div
-              className="absolute inset-0 pointer-events-none"
-              style={{ zIndex: 0, background: 'rgba(0,0,0,0.3)' }}
-            />
-          )}
-          {/* Instrucción de picking — sobre las mesas */}
-          {isPickingOrigin && (
+          {/* Modo selección de unión — banner indicador sobre las mesas */}
+          {isSelectionMode && !editMode && (
             <div
               className="absolute top-5 left-1/2 -translate-x-1/2 pointer-events-none"
               style={{ zIndex: 30 }}
             >
               <div className="flex items-center gap-2.5 bg-[#0d0d0d] border border-amber-500/60 rounded-2xl px-5 py-3 shadow-xl shadow-black/60">
                 <div className="w-7 h-7 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center flex-shrink-0">
-                  <span className="text-amber-400 text-sm font-black">1</span>
-                </div>
-                <div>
-                  <p className="text-white text-sm font-bold leading-tight">Tocá la mesa PRINCIPAL del grupo</p>
-                  <p className="text-zinc-500 text-xs mt-0.5">Será la mesa base a la que se unirán las demás</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Overlay de modo fusión activo */}
-          {isMergeMode && !isPickingOrigin && (
-            <div
-              className="absolute top-5 left-1/2 -translate-x-1/2 pointer-events-none"
-              style={{ zIndex: 30 }}
-            >
-              <div className="flex items-center gap-2.5 bg-[#0d0d0d] border border-amber-500/60 rounded-2xl px-5 py-3 shadow-xl shadow-black/60">
-                <div className="w-7 h-7 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center flex-shrink-0">
-                  <span className="text-amber-400 text-sm font-black">2</span>
+                  <span className="text-amber-400 text-sm font-black">✓</span>
                 </div>
                 <div>
                   <p className="text-white text-sm font-bold leading-tight">
-                    Tocá las mesas a unir con Mesa{' '}
-                    <span className="text-amber-400">{originNumero}</span>
+                    Modo selección: elegí las mesas a unir
                   </p>
-                  <p className="text-zinc-500 text-xs mt-0.5">Tocá de nuevo una mesa para deseleccionarla</p>
+                  <p className="text-zinc-500 text-xs mt-0.5">
+                    Tocá 2 o más mesas · las mesas ya unidas no se pueden seleccionar
+                  </p>
                 </div>
               </div>
             </div>

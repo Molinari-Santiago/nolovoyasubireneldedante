@@ -40,9 +40,10 @@ export async function obtenerCategorias(): Promise<Categoria[]> {
   }
 }
 
-export async function obtenerProductos(): Promise<Producto[]> {
+export async function obtenerProductos(opts?: { soloDisponibles?: boolean }): Promise<Producto[]> {
   try {
-    const data = await apiFetch<{ productos: Producto[] }>("/productos");
+    const qs = opts?.soloDisponibles ? "?disponible=true" : "";
+    const data = await apiFetch<{ productos: Producto[] }>(`/productos${qs}`);
     return data.productos || [];
   } catch (error: any) {
     console.error("Error al obtener productos del backend:", error);
