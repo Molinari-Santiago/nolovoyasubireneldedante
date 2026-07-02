@@ -1,0 +1,329 @@
+.
+|-- backend-reservas/
+|   |-- prisma/
+|   |   |-- migrations/
+|   |   |   |-- 20260512120640_init/
+|   |   |   |   \-- migration.sql
+|   |   |   |-- 20260513114228_agregar_productos/
+|   |   |   |   \-- migration.sql
+|   |   |   |-- 20260514121011_agregar_pedidos/
+|   |   |   |   \-- migration.sql
+|   |   |   |-- 20260516174905_agregar_facturas/
+|   |   |   |   \-- migration.sql
+|   |   |   |-- 20260520184421_agregar_stock_producto/
+|   |   |   |   \-- migration.sql
+|   |   |   \-- migration_lock.toml
+|   |   |-- schema.prisma
+|   |   \-- seed.js
+|   |-- sql/
+|   |   \-- facturacion-cuenta-corriente.sql
+|   |-- src/
+|   |   |-- config/
+|   |   |   |-- env.js
+|   |   |   \-- supabaseAdmin.js
+|   |   |-- controllers/
+|   |   |   |-- categorias.controller.js
+|   |   |   |-- cuentasCorrientes.controller.js
+|   |   |   |-- facturas.controller.js
+|   |   |   |-- facturasExport.controller.js
+|   |   |   |-- mesas.controller.js
+|   |   |   |-- pedidos.controller.js
+|   |   |   |-- productos.controller.js
+|   |   |   |-- reservas.controller.js
+|   |   |   \-- usuarios.controller.js
+|   |   |-- routes/
+|   |   |   |-- categorias.routes.js
+|   |   |   |-- facturas.routes.js
+|   |   |   |-- mesas.routes.js
+|   |   |   |-- pedidos.routes.js
+|   |   |   |-- productos.routes.js
+|   |   |   |-- reservas.routes.js
+|   |   |   \-- usuarios.routes.js
+|   |   |-- services/
+|   |   |   |-- arca.service.js
+|   |   |   |-- cuentaCorriente.service.js
+|   |   |   \-- excel.service.js
+|   |   |-- utils/
+|   |   |   \-- authz.js
+|   |   |-- app.js
+|   |   \-- server.js
+|   |-- .gitignore
+|   |-- fix2.mjs
+|   |-- merge-categorias.mjs
+|   |-- package.json
+|   \-- package-lock.json
+|-- noctua/
+|   |-- app/
+|   |   |-- api/
+|   |   |   |-- admin/
+|   |   |   |   |-- analytics/
+|   |   |   |   |   \-- route.ts
+|   |   |   |   \-- usuarios/
+|   |   |   |       \-- route.ts
+|   |   |   |-- soporte/
+|   |   |   |   |-- [id]/
+|   |   |   |   |   \-- route.ts
+|   |   |   |   \-- route.ts
+|   |   |   \-- webhooks/
+|   |   |       |-- glovo/
+|   |   |       |   \-- route.ts
+|   |   |       |-- rappi/
+|   |   |       |   \-- route.ts
+|   |   |       \-- ubereats/
+|   |   |           \-- route.ts
+|   |   |-- dashboard/
+|   |   |   |-- administracion/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- analytics/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- cocina/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- delivery/
+|   |   |   |   |-- [platform]/
+|   |   |   |   |   \-- page.tsx
+|   |   |   |   \-- page.tsx
+|   |   |   |-- facturas/
+|   |   |   |   |-- cuentas-corrientes/
+|   |   |   |   |   |-- [clienteId]/
+|   |   |   |   |   |   \-- page.tsx
+|   |   |   |   |   \-- page.tsx
+|   |   |   |   \-- page.tsx
+|   |   |   |-- historial/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- mesas/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- pedido/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- reservas/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- soporte/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- stock/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- dashboard.module.css
+|   |   |   |-- layout.tsx
+|   |   |   \-- page.tsx
+|   |   |-- login/
+|   |   |   \-- page.tsx
+|   |   |-- superadm/
+|   |   |   |-- cocina/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- configuracion/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- delivery/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- diseno/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- login/
+|   |   |   |   |-- actions.ts
+|   |   |   |   \-- page.tsx
+|   |   |   |-- mesas/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- pedidos/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- stock/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- layout.tsx
+|   |   |   \-- page.tsx
+|   |   |-- favicon.ico
+|   |   |-- globals.css
+|   |   |-- layout.tsx
+|   |   |-- page.tsx
+|   |   \-- providers.tsx
+|   |-- components/
+|   |   |-- administracion/
+|   |   |   |-- ConfirmarEliminarUsuario.tsx
+|   |   |   |-- UsuarioModal.tsx
+|   |   |   |-- usuariosHelpers.tsx
+|   |   |   \-- UsuariosTable.tsx
+|   |   |-- dashboard/
+|   |   |   |-- ExportButton.tsx
+|   |   |   |-- HourlySalesHeatmap.tsx
+|   |   |   |-- KPICard.tsx
+|   |   |   |-- PaymentMethodsChart.tsx
+|   |   |   |-- ReservationsWidget.tsx
+|   |   |   |-- SalesLineChart.tsx
+|   |   |   \-- TopProductsChart.tsx
+|   |   |-- delivery/
+|   |   |   |-- OrderCard.tsx
+|   |   |   |-- OrderStatusBadge.tsx
+|   |   |   \-- PlatformCard.tsx
+|   |   |-- facturas/
+|   |   |   |-- EstadoArca.tsx
+|   |   |   |-- facturasConstants.ts
+|   |   |   |-- FormularioCobro.tsx
+|   |   |   |-- PedidoSelector.tsx
+|   |   |   \-- TablaFacturas.tsx
+|   |   |-- layout/
+|   |   |   |-- Navbar.tsx
+|   |   |   \-- Sidebar.tsx
+|   |   |-- mesas/
+|   |   |   |-- MesaCard.bak.tsx
+|   |   |   |-- MesaCard.tsx
+|   |   |   |-- MesaChairs.tsx
+|   |   |   |-- MesaContextMenu.tsx
+|   |   |   |-- mesaEstadoColors.ts
+|   |   |   |-- MesaMergeBar.tsx
+|   |   |   |-- MesaModal.tsx
+|   |   |   |-- MesaQuickSummary.tsx
+|   |   |   |-- MesasCanvasLayout.tsx
+|   |   |   |-- MesasFloorPlan.tsx
+|   |   |   |-- MesaShape.tsx
+|   |   |   |-- MesaStatusLegend.tsx
+|   |   |   |-- MesaTouchOverlay.tsx
+|   |   |   |-- PedidoListoAlerta.tsx
+|   |   |   \-- ZonaFloorSection.tsx
+|   |   |-- pedidos/
+|   |   |   |-- AvailabilityBadge.tsx
+|   |   |   \-- RecipeIngredientSelector.tsx
+|   |   |-- soporte/
+|   |   |   |-- NuevoTicketModal.tsx
+|   |   |   |-- TicketCard.tsx
+|   |   |   |-- TicketCategoriaBadge.tsx
+|   |   |   |-- TicketDetalleModal.tsx
+|   |   |   |-- TicketEstadoBadge.tsx
+|   |   |   \-- TicketListView.tsx
+|   |   |-- stock/
+|   |   |   |-- AddIngredientModal.tsx
+|   |   |   |-- CategoryAccordion.tsx
+|   |   |   |-- ExpirationBadge.tsx
+|   |   |   |-- IngredientCard.tsx
+|   |   |   |-- IngredientRow.tsx
+|   |   |   |-- StockAdjuster.tsx
+|   |   |   |-- StockBadge.tsx
+|   |   |   |-- StockFilters.tsx
+|   |   |   |-- StockHeader.tsx
+|   |   |   \-- StockProgressBar.tsx
+|   |   |-- superadm/
+|   |   |   \-- shared/
+|   |   |       |-- ColorPickerField.tsx
+|   |   |       |-- ConfirmDeleteModal.tsx
+|   |   |       |-- DragHandle.tsx
+|   |   |       |-- EditableRow.tsx
+|   |   |       |-- SuperAdmHeader.tsx
+|   |   |       \-- SuperAdmSidebar.tsx
+|   |   \-- ui/
+|   |       |-- Badge.tsx
+|   |       |-- Button.tsx
+|   |       |-- Card.tsx
+|   |       |-- Modal.tsx
+|   |       |-- Toast.tsx
+|   |       \-- Toggle.tsx
+|   |-- config/
+|   |   \-- roles.ts
+|   |-- constants/
+|   |   \-- dashboardColors.ts
+|   |-- hooks/
+|   |   |-- lib/
+|   |   |   |-- api/
+|   |   |   |   |-- client.ts
+|   |   |   |   |-- constants.ts
+|   |   |   |   |-- mesasApi.ts
+|   |   |   |   |-- pedidosApi.ts
+|   |   |   |   |-- productosApi.ts
+|   |   |   |   \-- reservasApi.ts
+|   |   |   |-- constants.ts
+|   |   |   |-- dishesMockData.ts
+|   |   |   |-- mockData.ts
+|   |   |   |-- pedidosApi.ts
+|   |   |   |-- queryClient.ts
+|   |   |   |-- stockMockData.ts
+|   |   |   |-- supabaseClient.ts
+|   |   |   \-- utils.ts
+|   |   |-- queryClient.ts
+|   |   |-- useCocina.ts
+|   |   |-- useDashboardData.ts
+|   |   |-- useDeliveryOrders.ts
+|   |   |-- useLongPress.ts
+|   |   |-- useMesaMerge.ts
+|   |   |-- useMesaQuickSummary.ts
+|   |   |-- useMesas.ts
+|   |   |-- usePedidos.ts
+|   |   |-- useSoporte.ts
+|   |   \-- useStock.ts
+|   |-- lib/
+|   |   |-- platformRegistry.ts
+|   |   \-- recipeCalculator.ts
+|   |-- public/
+|   |   |-- file.svg
+|   |   |-- globe.svg
+|   |   |-- next.svg
+|   |   |-- vercel.svg
+|   |   \-- window.svg
+|   |-- services/
+|   |   |-- adapters/
+|   |   |   |-- glovo.adapter.ts
+|   |   |   |-- pedidosya.adapter.ts
+|   |   |   |-- rappi.adapter.ts
+|   |   |   \-- ubereats.adapter.ts
+|   |   |-- auth/
+|   |   |   |-- rappiTokenManager.ts
+|   |   |   \-- uberEatsAuth.ts
+|   |   |-- analyticsService.ts
+|   |   |-- authService.ts
+|   |   |-- cocinaService.ts
+|   |   |-- deliveryService.ts
+|   |   |-- facturasService.ts
+|   |   |-- mesaMergeService.ts
+|   |   |-- mesasService.ts
+|   |   |-- pedidosService.ts
+|   |   |-- platformAdapter.interface.ts
+|   |   |-- soporteService.ts
+|   |   |-- stockService.ts
+|   |   |-- superadmService.ts
+|   |   \-- usuariosService.ts
+|   |-- store/
+|   |   |-- authStore.ts
+|   |   |-- deliveryStore.ts
+|   |   |-- mesasStore.ts
+|   |   |-- notificationsStore.ts
+|   |   |-- pedidosStore.ts
+|   |   |-- stockStore.ts
+|   |   \-- superadmStore.ts
+|   |-- types/
+|   |   |-- analytics.ts
+|   |   |-- index.ts
+|   |   |-- mesa.ts
+|   |   |-- orders.ts
+|   |   |-- pedido.ts
+|   |   |-- platforms.ts
+|   |   |-- producto.ts
+|   |   |-- soporte.ts
+|   |   |-- stock.ts
+|   |   |-- superadm.ts
+|   |   \-- usuario.ts
+|   |-- utils/
+|   |   |-- exportDashboard.ts
+|   |   \-- formatters.ts
+|   |-- .dockerignore
+|   |-- .gitignore
+|   |-- base-de-datos.sql
+|   |-- Dockerfile
+|   |-- eslint.config.mjs
+|   |-- fix-categorias.mjs
+|   |-- middleware.ts
+|   |-- next.config.ts
+|   |-- next-env.d.ts
+|   |-- package.json
+|   |-- package-lock.json
+|   |-- postcss.config.mjs
+|   |-- README.md
+|   |-- supabase_schema.json
+|   |-- test-backend-pedido.mjs
+|   |-- test-estados.mjs
+|   |-- test-pedidos.mjs
+|   |-- test-pedidos-enum.mjs
+|   |-- test-pedidos-insert.mjs
+|   |-- test-pedidos-select.mjs
+|   |-- test-select-rls.mjs
+|   |-- test-supabase.mjs
+|   |-- test-supabase2.mjs
+|   |-- test-supabase-cat.mjs
+|   \-- tsconfig.json
+|-- Proyecto-Restaurante/
+|   \-- README.md
+|-- .gitignore
+|-- package.json
+\-- package-lock.json
+
+Excluido intencionalmente: node_modules/, .next/, .git/, dist/, build/, certificados/, archivos .env, archivos de certificados, binarios, archivos Excel, bases de datos locales, caches y tsconfig.tsbuildinfo.
