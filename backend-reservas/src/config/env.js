@@ -1,4 +1,7 @@
-import "dotenv/config";
+import { config } from "dotenv";
+// Carga .env y .env.local (Next.js convention)
+config();
+config({ path: ".env.local", override: false });
 
 const requiredEnv = [
   "SUPABASE_URL",

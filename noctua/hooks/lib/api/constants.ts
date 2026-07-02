@@ -9,6 +9,7 @@ export const COLORES_ESTADO_MESA: Record<EstadoMesa, string> = {
   pedido_listo: "bg-green-500",
   esperando_pago: "bg-blue-500",
   problema: "bg-red-500",
+  para_cobrar: "bg-amber-600",
 };
 
 export const TEXTO_ESTADO_MESA: Record<EstadoMesa, string> = {
@@ -18,6 +19,7 @@ export const TEXTO_ESTADO_MESA: Record<EstadoMesa, string> = {
   pedido_listo: "Pedido listo",
   esperando_pago: "Esperando pago",
   problema: "Problema",
+  para_cobrar: "Para cobrar",
 };
 
 export const COLORES_ESTADO_COCINA: Record<EstadoCocina, string> = {

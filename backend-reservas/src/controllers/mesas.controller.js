@@ -64,8 +64,35 @@ export const crearMesa = async (req, res) => {
 export const eliminarMesa = async (req, res) => {
   try {
     const { id } = req.params;
-    const { error } = await supabaseAdmin.from("mesas").delete().eq("id", id);
 
+    // 1. Obtener todos los pedidos vinculados a esta mesa
+    const { data: pedidos } = await supabaseAdmin
+      .from("pedidos")
+      .select("id")
+      .eq("mesa_id", id);
+
+    const pedidoIds = (pedidos || []).map((p) => p.id);
+
+    if (pedidoIds.length > 0) {
+      // 2. Facturas (referencia pedidos y pagos)
+      await supabaseAdmin.from("facturas").delete().in("pedido_id", pedidoIds);
+      // 3. Movimientos de stock (referencia pedidos)
+      await supabaseAdmin.from("movimientos_stock").delete().in("pedido_id", pedidoIds);
+      // 4. Items de pedido (referencia pedidos)
+      await supabaseAdmin.from("pedido_items").delete().in("pedido_id", pedidoIds);
+      // 5. Pedidos
+      const { error: pedidosError } = await supabaseAdmin
+        .from("pedidos")
+        .delete()
+        .in("id", pedidoIds);
+      if (pedidosError) throw new Error(pedidosError.message);
+    }
+
+    // 6. Desvincular reservas (no eliminarlas, preservar el historial)
+    await supabaseAdmin.from("reservas").update({ mesa_id: null }).eq("mesa_id", id);
+
+    // 7. Eliminar la mesa
+    const { error } = await supabaseAdmin.from("mesas").delete().eq("id", id);
     if (error) throw new Error(error.message);
 
     return res.json({ mensaje: "Mesa eliminada correctamente" });

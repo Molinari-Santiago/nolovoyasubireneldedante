@@ -4,8 +4,10 @@ export interface Ingredient {
   category: string;
   subcategory?: string;
   stock: number;
-  unit: 'unidades' | 'kg' | 'litros' | 'gramos';
+  unit: 'unidades' | 'kg' | 'litros' | 'gramos' | 'atado';
   minStock: number;
+  expirationDate: Date | null;
+  hasExpiration: boolean;
   lastUpdated: Date;
 }
 
@@ -18,5 +20,5 @@ export interface StockCategory {
   lowStockCount?: number;
 }
 
-export type StockFilter = 'all' | 'low' | 'ok' | 'empty';
+export type StockFilter = 'all' | 'low' | 'ok' | 'empty' | 'expiring';
 export type StockView = 'grid' | 'list';

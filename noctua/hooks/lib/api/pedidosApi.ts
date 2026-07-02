@@ -100,6 +100,20 @@ export async function obtenerPedidos(): Promise<Pedido[]> {
   }
 }
 
+// Estados activos de cocina + entregado (para que siga visible en la mesa)
+export async function obtenerPedidosActivos(): Promise<Pedido[]> {
+  try {
+    const data = await apiFetch<{ pedidos: unknown[] }>(
+      "/pedidos?estado=pendiente,preparando,listo,entregado"
+    );
+    const pedidos = data.pedidos || [];
+    return pedidos.map((p) => mapBackendPedido(p as Parameters<typeof mapBackendPedido>[0]));
+  } catch (error) {
+    console.error("Error al obtener pedidos activos:", error);
+    return [];
+  }
+}
+
 export async function obtenerPedidosPorFecha(inicio: string, fin: string): Promise<Pedido[]> {
   try {
     const data = await apiFetch<{ pedidos: unknown[] }>(`/pedidos?desde=${inicio}&hasta=${fin}`);
@@ -164,11 +178,15 @@ export async function actualizarEstadoPedido(
   pedidoId: string,
   estado: EstadoCocina
 ) {
-  // Todos los cambios de estado pasan por el backend (bypassea RLS)
   await apiFetch(`/pedidos/${pedidoId}/estado`, {
     method: "PATCH",
     body: JSON.stringify({ estado }),
   });
 
+  return { success: true };
+}
+
+export async function eliminarPedido(pedidoId: string) {
+  await apiFetch(`/pedidos/${pedidoId}`, { method: "DELETE" });
   return { success: true };
 }

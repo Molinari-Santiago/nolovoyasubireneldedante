@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { StockBadge } from './StockBadge';
+import { ExpirationBadge } from './ExpirationBadge';
 import { StockAdjuster } from './StockAdjuster';
 import type { Ingredient } from '@/types/stock';
 
@@ -33,6 +34,9 @@ export const IngredientRow = ({ ingredient, index }: IngredientRowProps) => (
     </td>
     <td className="px-4 py-3">
       <StockBadge ingredient={ingredient} />
+    </td>
+    <td className="px-4 py-3">
+      <ExpirationBadge ingredient={ingredient} />
     </td>
     <td className="px-4 py-3">
       <span className="text-[#3a3a3a] text-xs">

@@ -349,10 +349,11 @@ export default function SuperAdmDisenoPage() {
             </div>
             
             <div className="p-6 rounded-2xl border" style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-surface)' }}>
-              <h3 style={{
+              <h3 className="text-lg font-bold mb-2" style={{ 
                 fontFamily: config.theme.typography.fontFamily, 
-                fontWeight: config.theme.typography.headingWeight
-              }} className="text-lg font-bold mb-2" style={{ color: 'var(--color-text)' }}>
+                fontWeight: config.theme.typography.headingWeight,
+                color: 'var(--color-text)'
+              }}>
                 Título de ejemplo
               </h3>
               <p style={{ color: 'var(--color-textSecondary)' }}>

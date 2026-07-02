@@ -11,6 +11,7 @@ export const MESA_ESTADO_HEX: Record<EstadoMesa, string> = {
   pedido_listo:     '#22c55e', // green-500
   esperando_pago:   '#3b82f6', // blue-500
   problema:         '#ef4444', // red-500
+  para_cobrar:      '#d97706', // amber-600 — NOCTUA gold
 };
 
 /** Estados que implican personas sentadas (cambia color de sillas) */

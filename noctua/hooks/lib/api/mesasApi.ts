@@ -30,14 +30,13 @@ function mapEstadoMesa(mesa: MesaBackend): EstadoMesa {
   if (mesa.estadoPedido === "PENDIENTE") return "esperando_pedido";
   if (mesa.estadoPedido === "PREPARANDO") return "ocupada";
   if (mesa.estadoPedido === "LISTO") return "pedido_listo";
-  if (mesa.estadoPedido === "lista_para_cobrar") return "esperando_pago";
+  if (mesa.estadoPedido === "lista_para_cobrar") return "para_cobrar";
 
   if (mesa.estado === "libre") return "libre";
   if (mesa.estado === "ocupada") return "ocupada";
   if (mesa.estado === "reservada") return "esperando_pedido";
   if (mesa.estado === "esperando_pedido") return "esperando_pedido";
   if (mesa.estado === "pedido_listo") return "pedido_listo";
-  if (mesa.estado === "esperando_pago") return "esperando_pago";
   if (mesa.estado === "problema") return "problema";
 
   if (mesa.disponible === true) return "libre";
@@ -69,7 +68,7 @@ export async function obtenerMesas(): Promise<Mesa[]> {
     mesasUnidas: [],
     personas: mesa.personas || undefined,
     pedidoId: mesa.pedido_id ? String(mesa.pedido_id) : undefined,
-    timerInicio: mesa.creada_en ? new Date(mesa.creada_en) : undefined,
+    timerInicio: undefined, // se gestiona en el store al cambiar estado
   }));
 }
 
@@ -197,8 +196,10 @@ export async function eliminarMesa(id: string) {
 export async function actualizarEstadoMesa(id: string, estado: EstadoMesa) {
   const queryId = Number.isNaN(Number(id)) ? id : Number(id);
   const disponible = estado === "libre";
+  // "para_cobrar" no existe en el enum de la DB → se persiste como "ocupada"
+  const estadoDB = estado === "para_cobrar" ? "ocupada" : estado;
   const cambios: Record<string, unknown> = {
-    estado,
+    estado: estadoDB,
     disponible,
   };
 

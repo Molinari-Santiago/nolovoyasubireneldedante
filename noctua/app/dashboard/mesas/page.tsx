@@ -19,6 +19,7 @@ export default function MesasPage() {
   const unirMesas = useMesasStore((s) => s.unirMesas);
 
   const cargarMesas = useMesasStore((s) => s.cargarMesas);
+  const suscribirCambiosMesas = useMesasStore((s) => s.suscribirCambiosMesas);
   const crearMesaDesdePanel = useMesasStore((s) => s.crearMesaDesdePanel);
   const eliminarMesaDesdePanel = useMesasStore((s) => s.eliminarMesaDesdePanel);
   const isLoading = useMesasStore((s) => s.isLoading);
@@ -34,7 +35,9 @@ export default function MesasPage() {
 
   useEffect(() => {
     cargarMesas();
-  }, [cargarMesas]);
+    const unsub = suscribirCambiosMesas();
+    return unsub;
+  }, [cargarMesas, suscribirCambiosMesas]);
 
   const handleCrearMesa = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

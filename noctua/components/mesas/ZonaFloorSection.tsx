@@ -2,15 +2,17 @@
 
 import { memo } from 'react';
 import { MesaCard } from './MesaCard';
-import type { Mesa } from '@/types/mesa';
+import type { Mesa, MesaGestureCallbacks } from '@/types/mesa';
 
 interface ZonaFloorSectionProps {
-  zona: string;
-  mesas: Mesa[];
+  zona:             string;
+  mesas:            Mesa[];
   mesasSeleccionadas: string[];
-  onSingleClick: (id: string) => void;
-  onDoubleClick: (mesa: Mesa) => void;
-  onDelete: (id: string) => void;
+  mergeSelectedIds: string[];
+  isMergeMode:      boolean;
+  mozoRequeridoIds: Set<string>;
+  gestures:         MesaGestureCallbacks;
+  onDelete:         (id: string) => void;
 }
 
 /**
@@ -21,25 +23,25 @@ export const ZonaFloorSection = memo(function ZonaFloorSection({
   zona,
   mesas,
   mesasSeleccionadas,
-  onSingleClick,
-  onDoubleClick,
+  mergeSelectedIds,
+  isMergeMode,
+  mozoRequeridoIds,
+  gestures,
   onDelete,
 }: ZonaFloorSectionProps) {
   const ocupadas = mesas.filter((m) => m.estado !== 'libre').length;
 
   return (
     <div className="relative bg-zinc-900/50 border border-zinc-700/40 border-dashed rounded-2xl p-6 min-h-[220px] flex flex-col gap-5">
-      {/* Encabezado de zona — estilo etiqueta de plano arquitectónico */}
+      {/* Encabezado de zona */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {/* Indicador de sala */}
           <span className="block w-3 h-3 border border-zinc-600 rotate-45 flex-shrink-0" />
           <h3 className="text-xs font-semibold tracking-[0.25em] uppercase text-zinc-500">
             {zona}
           </h3>
         </div>
 
-        {/* Contador de ocupadas */}
         <span
           className={`text-xs font-mono px-2 py-0.5 rounded border ${
             ocupadas > 0
@@ -59,14 +61,16 @@ export const ZonaFloorSection = memo(function ZonaFloorSection({
               key={mesa.id}
               mesa={mesa}
               isSelected={mesasSeleccionadas.includes(mesa.id)}
-              onSingleClick={onSingleClick}
-              onDoubleClick={onDoubleClick}
+              isMergeMode={isMergeMode}
+              isMergeSelected={mergeSelectedIds.includes(mesa.id)}
+              isPickingOrigin={false}
+              isMozoRequerido={mozoRequeridoIds.has(mesa.id)}
+              gestures={gestures}
               onDelete={onDelete}
             />
           ))}
         </div>
       ) : (
-        /* Sala vacía — aspecto de sala sin mobiliario */
         <div className="flex-1 flex items-center justify-center">
           <p className="text-xs text-zinc-700 tracking-widest uppercase font-mono">
             — sala vacía —
@@ -74,7 +78,7 @@ export const ZonaFloorSection = memo(function ZonaFloorSection({
         </div>
       )}
 
-      {/* Línea de escala decorativa — estilo plano arquitectónico */}
+      {/* Línea de escala decorativa */}
       <div className="absolute bottom-3 left-6 flex items-center gap-1 opacity-20 pointer-events-none">
         <div className="w-8 h-px bg-zinc-500" />
         <span className="text-[9px] text-zinc-500 font-mono tracking-widest">ZONA</span>
