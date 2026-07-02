@@ -3,11 +3,10 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSuperAdmStore } from '@/store/superadmStore';
-import { LayoutDashboard, UtensilsCrossed, ShoppingCart, ChefHat, Truck, Palette, Table, ArrowRight, ClipboardList } from 'lucide-react';
+import { LayoutDashboard, UtensilsCrossed, ShoppingCart, ChefHat, Truck, Palette, Table, ArrowRight } from 'lucide-react';
 
 const quickLinks = [
   { id: 'mesas', name: 'Mesas', path: '/superadm/mesas', icon: Table, desc: 'Gestiona zonas y mesas', color: 'text-blue-400' },
-  { id: 'pedidos', name: 'Pedidos', path: '/superadm/pedidos', icon: ClipboardList, desc: 'Menú y platos', color: 'text-orange-400' },
   { id: 'cocina', name: 'Cocina', path: '/superadm/cocina', icon: ChefHat, desc: 'Estados de cocina', color: 'text-red-400' },
   { id: 'stock', name: 'Stock', path: '/superadm/stock', icon: ShoppingCart, desc: 'Productos y stock', color: 'text-green-400' },
   { id: 'delivery', name: 'Delivery', path: '/superadm/delivery', icon: Truck, desc: 'Apps de delivery', color: 'text-violet-400' },

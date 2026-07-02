@@ -1,4 +1,4 @@
-import type { RecipeIngredient, Dish } from '@/types/orders';
+import type { RecipeIngredient, Dish } from '@/types/dishes';
 import type { Ingredient } from '@/types/stock';
 
 export function calculateMaxAvailable(

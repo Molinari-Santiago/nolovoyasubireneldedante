@@ -1,289 +1,173 @@
 'use client';
 
-import { useState, useMemo, useCallback, memo, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useRouter } from 'next/navigation';
-import { Plus, Minus, Trash2, ShoppingBag, ChevronRight } from 'lucide-react';
-import { usePedidosStore } from '@/store/pedidosStore';
-import { useMesasStore } from '@/store/mesasStore';
+import { useEffect, useState, useMemo } from 'react';
 import { useStockStore } from '@/store/stockStore';
-import { Button } from '@/components/ui/Button';
-import { formatARS, cn } from '@/hooks/lib/utils';
+import { useDishesStore } from '@/store/dishesStore';
+import { usePedidosStore } from '@/store/pedidosStore';
+import { ShoppingCart, ArrowLeft } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { DishCustomizerPanel } from '@/components/pedidos/DishCustomizerPanel';
+import type { Dish } from '@/types/dishes';
 
-// ── Producto Item ──────────────────────────────────────────────────────────────
+const CATEGORIES: { value: 'all' | any; label: string }[] = [
+  { value: 'all', label: 'Todos' },
+  { value: 'entradas', label: 'Entradas' },
+  { value: 'hamburguesas', label: 'Hamburguesas' },
+  { value: 'sandwiches', label: 'Sandwiches' },
+  { value: 'minutas', label: 'Minutas' },
+  { value: 'pastas', label: 'Pastas' },
+  { value: 'pizzas', label: 'Pizzas' },
+  { value: 'ensaladas', label: 'Ensaladas' },
+  { value: 'postres', label: 'Postres' },
+  { value: 'bebidas_sin_alcohol', label: 'Bebidas sin alcohol' },
+  { value: 'bebidas_con_alcohol', label: 'Bebidas con alcohol' },
+  { value: 'cafeteria', label: 'Cafetería' },
+];
 
-const ProductoItem = memo(function ProductoItem({
-  producto,
-  onAdd,
-}: {
-  producto: { id: string; nombre: string; precio: number; disponible: boolean };
-  onAdd: (id: string, nombre: string, precio: number) => void;
-}) {
-  return (
-    <motion.button
-      layout
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      disabled={!producto.disponible}
-      onClick={() => onAdd(producto.id, producto.nombre, producto.precio)}
-      aria-label={`Agregar ${producto.nombre} al pedido`}
-      className={cn(
-        'w-full text-left p-4 rounded-xl border transition-all duration-150 group',
-        producto.disponible
-          ? 'bg-[#0f0f0f] border-[#1e1e1e] hover:border-[#3a3a3a] hover:bg-[#141414] active:scale-[0.98]'
-          : 'bg-[#0a0a0a] border-[#111] opacity-40 cursor-not-allowed'
-      )}
-    >
-      <div className="flex items-center justify-between">
-        <div className="flex-1 min-w-0">
-          <p className="text-white text-sm font-semibold truncate">{producto.nombre}</p>
-          <p className="text-[#676B67] text-xs font-mono mt-0.5">{formatARS(producto.precio)}</p>
-          {!producto.disponible && (
-            <p className="text-red-400 text-xs mt-0.5">Sin stock</p>
-          )}
-        </div>
-        <div className={cn(
-          'w-7 h-7 rounded-lg flex items-center justify-center transition-all',
-          producto.disponible
-            ? 'bg-[#1a1a1a] group-hover:bg-white group-hover:text-black text-[#676B67]'
-            : 'bg-[#111] text-[#2a2a2a]'
-        )}>
-          <Plus size={14} />
-        </div>
-      </div>
-    </motion.button>
-  );
-});
-
-// ── Main Page ──────────────────────────────────────────────────────────────────
-
-export default function PedidoPage() {
+export default function PedidosPage() {
   const router = useRouter();
-  const [categoriaActiva, setCategoriaActiva] = useState<string>('');
-  const [mesaSeleccionadaId, setMesaSeleccionadaId] = useState<string>('');
-
-  const mesas = useMesasStore((s) => s.mesas);
-  const cargarMesas = useMesasStore((s) => s.cargarMesas);
-  const productos = useStockStore((s) => s.productos);
-  const categorias = useStockStore((s) => s.categorias);
-  const cargarCategorias = useStockStore((s) => s.cargarCategorias);
-  const cargarProductos = useStockStore((s) => s.cargarProductos);
+  const { categories } = useStockStore();
+  const { recalculateAvailability, getDishesByCategory } = useDishesStore();
+  const { pedidoActual, agregarItem } = usePedidosStore();
+  
+  const allIngredients = useMemo(() => 
+    categories.flatMap(cat => cat.ingredients),
+  [categories]);
 
   useEffect(() => {
-    cargarMesas();
-    cargarCategorias().then(() => cargarProductos());
-  }, [cargarMesas, cargarCategorias, cargarProductos]);
+    recalculateAvailability(allIngredients);
+  }, [allIngredients, recalculateAvailability]);
 
+  const [selectedCategory, setSelectedCategory] = useState<'all' | any>('all');
+  const [isCustomizerOpen, setIsCustomizerOpen] = useState(false);
+  const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
 
+  const filteredDishes = getDishesByCategory(selectedCategory);
 
-  const {
-    pedidoActual,
-    iniciarPedido,
-    agregarItem,
-    quitarItem,
-    cambiarCantidad,
-    cancelarPedido,
-    enviarPedido,
-    mesaActivaId,
-  } = usePedidosStore();
-
-  const mesaActiva = mesas.find((m) => m.id === (mesaActivaId ?? mesaSeleccionadaId));
-
-  const productosFiltrados = useMemo(
-    () => {
-      if (!categoriaActiva) return productos;
-      return productos.filter((p) => p.categoria_id === categoriaActiva);
-    },
-    [productos, categoriaActiva]
-  );
-
-  const handleSeleccionarMesa = (mesaId: string) => {
-    setMesaSeleccionadaId(mesaId);
-    const mesa = mesas.find((m) => m.id === mesaId);
-    if (mesa) {
-      iniciarPedido(mesa.id, mesa.numero, mesa.zona, mesa.personas ?? 1);
-    }
+  const handleSelectDish = (dish: Dish) => {
+    setSelectedDish(dish);
+    setIsCustomizerOpen(true);
   };
 
-  const handleAgregar = useCallback((id: string, nombre: string, precio: number) => {
-    if (!mesaActiva) return;
-    if (!pedidoActual) {
-      iniciarPedido(mesaActiva.id, mesaActiva.numero, mesaActiva.zona, mesaActiva.personas ?? 1);
-    }
-    agregarItem({ productoId: id, nombre, cantidad: 1, precioUnitario: precio });
-  }, [mesaActiva, pedidoActual, iniciarPedido, agregarItem]);
-
-  const handleEnviar = async () => {
-    const pedido = await enviarPedido();
-    if (pedido) {
-      router.push('/dashboard/cocina');
-    }
+  const handleAddToOrder = (data: any) => {
+    // Convert data to ItemPedido format expected by the store
+    const item = {
+      productoId: data.dishId || data.id,
+      nombre: data.name || data.dishName,
+      cantidad: data.quantity || 1,
+      precioUnitario: data.basePrice || data.price,
+      notas: data.notes || ''
+    };
+    agregarItem(item);
+    setIsCustomizerOpen(false);
+    setSelectedDish(null);
   };
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] gap-4">
-      {/* ── Columna Izquierda: Categorías ── */}
-      <div className="w-40 flex-shrink-0 flex flex-col gap-2 overflow-y-auto pr-1">
-        <p className="text-xs font-semibold text-[#676B67] tracking-widest uppercase px-1 mb-1 flex-shrink-0">
-          Categoría
-        </p>
-        <button
-          onClick={() => setCategoriaActiva('')}
-          aria-pressed={categoriaActiva === ''}
-          className={cn(
-            'w-full py-3 px-4 rounded-xl text-sm font-bold tracking-wide transition-all duration-150 text-left capitalize',
-            categoriaActiva === ''
-              ? 'bg-white text-black'
-              : 'bg-[#0f0f0f] border border-[#1a1a1a] text-[#676B67] hover:text-white hover:border-[#2a2a2a]'
-          )}
-        >
-          Todos
-        </button>
-        {categorias.map((cat) => (
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center gap-4">
           <button
-            key={cat.id}
-            onClick={() => setCategoriaActiva(cat.id)}
-            aria-pressed={categoriaActiva === cat.id}
-            className={cn(
-              'w-full py-3 px-4 rounded-xl text-sm font-bold tracking-wide transition-all duration-150 text-left capitalize',
-              categoriaActiva === cat.id
-                ? 'bg-white text-black'
-                : 'bg-[#0f0f0f] border border-[#1a1a1a] text-[#676B67] hover:text-white hover:border-[#2a2a2a]'
-            )}
+            onClick={() => router.back()}
+            className="p-2 rounded-lg bg-[#202020] text-white hover:bg-[#252525] transition-colors"
           >
-            {cat.nombre}
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+            <h1 className="text-3xl font-bold text-white mb-2">Tomar Pedido</h1>
+            <p className="text-[#676b67]">Selecciona platos y personaliza</p>
+          </div>
+        </div>
+        <button 
+          onClick={() => router.push('/dashboard/pedido')}
+          className="px-4 py-2 rounded-lg bg-violet-600 text-white flex items-center gap-2 hover:bg-violet-700 transition-colors"
+        >
+          <ShoppingCart size={20} />
+          <span>Ver pedido ({pedidoActual?.items.length || 0})</span>
+        </button>
+      </div>
+
+      <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+        {CATEGORIES.map(cat => (
+          <button
+            key={cat.value}
+            onClick={() => setSelectedCategory(cat.value)}
+            className={`px-4 py-2 rounded-full text-sm transition-all whitespace-nowrap ${
+              selectedCategory === cat.value
+                ? 'bg-violet-600 text-white'
+                : 'bg-[#202020] text-[#676b67] hover:text-white'
+            }`}
+          >
+            {cat.label}
           </button>
         ))}
       </div>
 
-      {/* ── Columna Central: Productos ── */}
-      <div className="flex-1 min-w-0 overflow-y-auto space-y-2 pr-1">
-        <div className="flex items-center justify-between px-1 mb-3">
-          <h3 className="font-display text-xl tracking-widest text-[#BCB9B9] uppercase">
-            {categoriaActiva ? categorias.find(c => c.id === categoriaActiva)?.nombre : 'Todos los productos'}
-          </h3>
-          <span className="text-xs text-[#676B67]">{productosFiltrados.length} productos</span>
-        </div>
-        <AnimatePresence mode="popLayout">
-          {productosFiltrados.map((p) => (
-            <ProductoItem
-              key={p.id}
-              producto={p}
-              onAdd={handleAgregar}
-            />
-          ))}
-        </AnimatePresence>
-      </div>
-
-      {/* ── Columna Derecha: Resumen ── */}
-      <div className="w-72 flex-shrink-0 flex flex-col bg-[#080808] border border-[#1a1a1a] rounded-xl overflow-hidden">
-        {/* Header */}
-        <div className="p-4 border-b border-[#1a1a1a]">
-          <div className="flex items-center gap-2 mb-3">
-            <ShoppingBag size={16} className="text-[#676B67]" />
-            <span className="text-xs font-semibold text-[#676B67] tracking-widest uppercase">Pedido</span>
-          </div>
-          {/* Mesa selector */}
-          <select
-            value={mesaActivaId ?? mesaSeleccionadaId}
-            onChange={(e) => handleSeleccionarMesa(e.target.value)}
-            aria-label="Seleccionar mesa para el pedido"
-            className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#676B67]"
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
+        {filteredDishes.map(dish => (
+          <div
+            key={dish.id}
+            className={`bg-[#151515] border border-[#252525] rounded-xl p-6 transition-all ${
+              dish.isAvailable && dish.maxAvailable > 0 ? 'cursor-pointer hover:border-violet-500/50' : 'opacity-60 cursor-not-allowed'
+            }`}
+            onClick={() => dish.isAvailable && dish.maxAvailable > 0 && handleSelectDish(dish)}
           >
-            <option value="">— Seleccionar mesa —</option>
-            {mesas
-              .map((m) => {
-                const unidasNums = (m.mesasUnidas ?? [])
-                  .map((id) => mesas.find((x) => x.id === id)?.numero ?? 0)
-                  .filter((n) => n > 0)
-                  .sort((a, b) => a - b);
-                const label = unidasNums.length > 0
-                  ? `Mesa ${m.numero}+${unidasNums.join('+')} — ${m.zona}`
-                  : `Mesa ${m.numero} — ${m.zona}`;
-                return (
-                  <option key={m.id} value={m.id}>{label}</option>
-                );
-              })}
-          </select>
-        </div>
-
-        {/* Items */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {(!pedidoActual || pedidoActual.items.length === 0) ? (
-            <div className="flex flex-col items-center justify-center h-full text-center py-8">
-              <ShoppingBag size={32} className="text-[#2a2a2a] mb-3" />
-              <p className="text-[#3a3a3a] text-sm">
-                {mesaActiva ? 'Agregá productos al pedido' : 'Seleccioná una mesa primero'}
-              </p>
+            <div className="flex justify-between items-start mb-2">
+              <h3 className="text-white font-semibold text-lg">{dish.name}</h3>
+              <span className="text-white font-bold text-xl">${dish.price.toFixed(2)}</span>
             </div>
-          ) : (
-            pedidoActual.items.map((item) => (
-              <div key={item.productoId} className="flex items-center gap-2 py-2 border-b border-[#111]">
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-xs font-semibold truncate">{item.nombre}</p>
-                  <p className="text-[#676B67] text-xs font-mono">{formatARS(item.subtotal)}</p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => cambiarCantidad(item.productoId, item.cantidad - 1)}
-                    aria-label={`Reducir cantidad de ${item.nombre}`}
-                    className="w-6 h-6 bg-[#1a1a1a] rounded text-white hover:bg-[#2a2a2a] flex items-center justify-center"
-                  >
-                    <Minus size={10} />
-                  </button>
-                  <span className="w-6 text-center text-white text-sm font-bold">{item.cantidad}</span>
-                  <button
-                    onClick={() => cambiarCantidad(item.productoId, item.cantidad + 1)}
-                    aria-label={`Aumentar cantidad de ${item.nombre}`}
-                    className="w-6 h-6 bg-[#1a1a1a] rounded text-white hover:bg-[#2a2a2a] flex items-center justify-center"
-                  >
-                    <Plus size={10} />
-                  </button>
-                  <button
-                    onClick={() => quitarItem(item.productoId)}
-                    aria-label={`Eliminar ${item.nombre} del pedido`}
-                    className="w-6 h-6 ml-1 text-[#676B67] hover:text-red-400 flex items-center justify-center"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+            
+            {dish.description && (
+              <p className="text-[#676b67] text-sm mb-3">{dish.description}</p>
+            )}
 
-        {/* Total + Actions */}
-        <div className="p-4 border-t border-[#1a1a1a] space-y-3">
-          <div className="flex justify-between items-center">
-            <span className="text-xs font-semibold text-[#676B67] tracking-widest uppercase">Total</span>
-            <span className="text-white font-bold font-mono text-lg">
-              {formatARS(pedidoActual?.total ?? 0)}
-            </span>
+            <div className="flex items-center gap-2 mb-3">
+              <span className="px-2 py-1 rounded-full text-xs bg-[#202020] text-[#676b67]">
+                {dish.category}
+              </span>
+              {dish.isAvailable && dish.maxAvailable > 0 ? (
+                <span className="px-2 py-1 rounded-full text-xs bg-green-900/30 text-green-300">
+                  {dish.maxAvailable} disponibles
+                </span>
+              ) : (
+                <span className="px-2 py-1 rounded-full text-xs bg-red-900/30 text-red-300">
+                  Agotado
+                </span>
+              )}
+            </div>
+
+            {dish.recipe.length > 0 && (
+              <div className="text-xs text-[#676b67]">
+                {dish.recipe.slice(0, 3).map((ing, idx) => (
+                  <span key={idx} className="mr-2">{ing.ingredientName}</span>
+                ))}
+                {dish.recipe.length > 3 && (
+                  <span>+{dish.recipe.length - 3} más</span>
+                )}
+              </div>
+            )}
           </div>
-          <Button
-            variant="primary"
-            className="w-full"
-            disabled={!pedidoActual || pedidoActual.items.length === 0}
-            onClick={handleEnviar}
-            aria-label="Enviar pedido a cocina"
-          >
-            Enviar a cocina
-            <ChevronRight size={14} />
-          </Button>
-          {pedidoActual && pedidoActual.items.length > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full"
-              onClick={cancelarPedido}
-              aria-label="Cancelar pedido actual"
-            >
-              Cancelar pedido
-            </Button>
-          )}
-        </div>
+        ))}
+
+        {filteredDishes.length === 0 && (
+          <div className="col-span-full text-center py-12">
+            <p className="text-[#676b67]">No hay platos disponibles</p>
+          </div>
+        )}
       </div>
+
+      {selectedDish && (
+        <DishCustomizerPanel
+          isOpen={isCustomizerOpen}
+          onClose={() => {
+            setIsCustomizerOpen(false);
+            setSelectedDish(null);
+          }}
+          dish={selectedDish}
+          allIngredients={allIngredients}
+          onAddToOrder={handleAddToOrder}
+        />
+      )}
     </div>
   );
 }
