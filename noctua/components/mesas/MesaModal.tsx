@@ -11,7 +11,11 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { useMesasStore } from '@/store/mesasStore';
 import { usePedidosStore } from '@/store/pedidosStore';
-import { COLORES_ESTADO_MESA, TEXTO_ESTADO_MESA } from '@/hooks/lib/constants';
+import { setComensales } from '@/services/comensalesService';
+import {
+  COLORES_ESTADO_MESA, TEXTO_ESTADO_MESA,
+  COMENSALES_MIN, COMENSALES_MAX_ABSOLUTO,
+} from '@/hooks/lib/constants';
 import { formatElapsed, formatARS } from '@/hooks/lib/utils';
 import { toast } from '@/components/ui/Toast';
 import type { Mesa, EstadoMesa } from '@/types/mesa';
@@ -45,7 +49,6 @@ function dotColor(tailwind: string) {
 export function MesaModal({ mesa, isOpen, onClose }: MesaModalProps) {
   const router = useRouter();
   const cambiarEstadoMesa = useMesasStore((s) => s.cambiarEstadoMesa);
-  const setPersonasMesa   = useMesasStore((s) => s.setPersonasMesa);
   const setTimerInicio    = useMesasStore((s) => s.setTimerInicio);
   const dividirMesas      = useMesasStore((s) => s.dividirMesas);
   const getPedidoPorMesa  = usePedidosStore((s) => s.getPedidoPorMesa);
@@ -55,7 +58,10 @@ export function MesaModal({ mesa, isOpen, onClose }: MesaModalProps) {
   const [personas, setPersonas]   = useState(2);
   const [changingEstado, setChangingEstado] = useState(false);
 
-  useEffect(() => { setPersonas(mesa?.personas ?? 2); }, [mesa]);
+  // Default de comensales = capacidad de la mesa (o el valor ya registrado)
+  useEffect(() => {
+    setPersonas(mesa?.personas ?? mesa?.capacidad ?? COMENSALES_MIN);
+  }, [mesa]);
 
   // Timer live
   useEffect(() => {
@@ -81,9 +87,13 @@ export function MesaModal({ mesa, isOpen, onClose }: MesaModalProps) {
 
   const handlePersonasChange = (delta: number) => {
     if (!mesa) return;
-    const val = Math.max(1, Math.min(20, personas + delta));
+    // Se permite superar la capacidad (sillas extra) con aviso, no bloqueo
+    const val = Math.max(COMENSALES_MIN, Math.min(COMENSALES_MAX_ABSOLUTO, personas + delta));
     setPersonas(val);
-    setPersonasMesa(mesa.id, val);
+    // Persiste: store + backend si ya existe un pedido para la mesa
+    setComensales(mesa.id, val).catch(() =>
+      toast.error('Error', 'No se pudieron actualizar los comensales')
+    );
   };
 
   const handleAjustarTimer = (minutos: number) => {
@@ -95,8 +105,11 @@ export function MesaModal({ mesa, isOpen, onClose }: MesaModalProps) {
 
   const handleVerPedido = () => {
     if (!mesa) return;
-    iniciarPedido(mesa.id, mesa.numero, mesa.zona, mesa.personas ?? 1);
-    router.push('/dashboard/pedido');
+    // Asegura que el pedido arranque con los comensales elegidos en el modal
+    setComensales(mesa.id, personas).catch(() => {});
+    iniciarPedido(mesa.id, mesa.numero, mesa.zona, personas);
+    // mesaId explícito en la URL: la pantalla de pedido nunca lo infiere
+    router.push(`/dashboard/pedido?mesa=${mesa.id}`);
     onClose();
   };
 
@@ -169,7 +182,8 @@ export function MesaModal({ mesa, isOpen, onClose }: MesaModalProps) {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => handlePersonasChange(-1)}
-                className="w-8 h-8 bg-zinc-800 border border-zinc-700 rounded-lg text-white hover:bg-zinc-700 transition-colors font-bold text-lg leading-none flex items-center justify-center"
+                disabled={personas <= COMENSALES_MIN}
+                className="w-8 h-8 bg-zinc-800 border border-zinc-700 rounded-lg text-white hover:bg-zinc-700 transition-colors font-bold text-lg leading-none flex items-center justify-center disabled:opacity-30"
               >−</button>
               <span className="text-white font-bold text-xl w-8 text-center">{personas}</span>
               <button
@@ -178,6 +192,12 @@ export function MesaModal({ mesa, isOpen, onClose }: MesaModalProps) {
               >+</button>
               <Users size={14} className="text-zinc-600 ml-1" />
             </div>
+            {/* Aviso al superar la capacidad física — no bloquea */}
+            {personas > mesa.capacidad && (
+              <p className="text-amber-400 text-[11px] mt-1.5 leading-tight">
+                Supera la capacidad ({mesa.capacidad}). Confirmá que hay sillas extra.
+              </p>
+            )}
           </div>
 
           {/* Timer */}
@@ -246,10 +266,10 @@ export function MesaModal({ mesa, isOpen, onClose }: MesaModalProps) {
             variant="primary"
             size="sm"
             onClick={handleVerPedido}
-            aria-label={pedido ? 'Ver pedido activo' : 'Crear nuevo pedido'}
+            aria-label={pedido ? 'Ver pedido activo' : 'Agregar pedido a la mesa'}
           >
             <ShoppingBag size={13} />
-            {pedido ? 'Ver pedido' : 'Nuevo pedido'}
+            {pedido ? 'Ver pedido' : 'Agregar pedido'}
           </Button>
 
           {mesa.estado !== 'libre' && (

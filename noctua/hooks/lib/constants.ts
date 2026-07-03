@@ -55,3 +55,13 @@ export const ZONAS_NAMES = [
 export const TIMER_WARNING_MINUTES = 90;
 export const KDS_TIMER_GREEN_MINUTES = 10;
 export const KDS_TIMER_YELLOW_MINUTES = 20;
+
+// ── Comensales (personas sentadas por seating) ───────────────────────────────
+export const COMENSALES_MIN = 1;
+export const COMENSALES_MAX_ABSOLUTO = 30; // tope de seguridad al superar capacidad
+
+// ── Timer de mesa ────────────────────────────────────────────────────────────
+/** Minutos tras los que una mesa abierta se marca visualmente como "hace rato". */
+export const MESA_ELAPSED_ALERT_MINUTES = 45;
+/** Habilita/deshabilita el flag visual de mesa abierta hace rato (sin rebuild). */
+export const MESA_ELAPSED_ALERT_ENABLED = true;

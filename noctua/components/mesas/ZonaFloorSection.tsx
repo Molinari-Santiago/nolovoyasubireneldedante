@@ -63,7 +63,7 @@ export const ZonaFloorSection = memo(function ZonaFloorSection({
               isSelected={mesasSeleccionadas.includes(mesa.id)}
               isMergeMode={isMergeMode}
               isMergeSelected={mergeSelectedIds.includes(mesa.id)}
-              isPickingOrigin={false}
+              isSelectable={!mesa.mesasUnidas || mesa.mesasUnidas.length === 0}
               isMozoRequerido={mozoRequeridoIds.has(mesa.id)}
               gestures={gestures}
               onDelete={onDelete}

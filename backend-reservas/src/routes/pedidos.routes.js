@@ -8,6 +8,7 @@ import {
   cerrarPedido,
   cancelarPedido,
   actualizarEstado,
+  actualizarComensales,
   eliminarPedido,
 } from "../controllers/pedidos.controller.js";
 
@@ -20,6 +21,7 @@ router.post("/:id/productos", agregarProductoAlPedido);
 router.patch("/:id/cerrar", cerrarPedido);
 router.patch("/:id/cancelar", cancelarPedido);
 router.patch("/:id/estado", actualizarEstado);
+router.patch("/:id/comensales", actualizarComensales);
 router.delete("/:id", eliminarPedido);
 
 export default router;

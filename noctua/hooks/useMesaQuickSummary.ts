@@ -4,7 +4,6 @@
 import { useState, useMemo } from 'react';
 import { usePedidosStore } from '@/store/pedidosStore';
 import { useMesasStore } from '@/store/mesasStore';
-import { formatElapsed } from '@/hooks/lib/utils';
 import type { MesaQuickSummaryData } from '@/types/mesa';
 
 interface UseMesaQuickSummaryReturn {
@@ -28,19 +27,20 @@ export function useMesaQuickSummary(): UseMesaQuickSummaryReturn {
     const pedido = getPedidoPorMesa(activeMesaId);
 
     return {
-      mesaId:             activeMesaId,
-      numero:             mesa.numero,
-      capacidad:          mesa.capacidad,
-      estado:             mesa.estado,
-      pedidoId:           pedido?.id,
-      items:              pedido?.items.map((i) => ({
+      mesaId:      activeMesaId,
+      numero:      mesa.numero,
+      capacidad:   mesa.capacidad,
+      comensales:  pedido?.personas ?? mesa.personas,
+      estado:      mesa.estado,
+      pedidoId:    pedido?.id,
+      items:       pedido?.items.map((i) => ({
         nombre:   i.nombre,
         cantidad: i.cantidad,
         subtotal: i.subtotal,
       })) ?? [],
-      total:              pedido?.total ?? 0,
-      tiempoTranscurrido: pedido?.creadoEn ? formatElapsed(pedido.creadoEn) : undefined,
-      isLoading:          false,
+      total:       pedido?.total ?? 0,
+      timerInicio: mesa.timerInicio,
+      isLoading:   false,
     };
   }, [activeMesaId, mesas, getPedidoPorMesa]);
 

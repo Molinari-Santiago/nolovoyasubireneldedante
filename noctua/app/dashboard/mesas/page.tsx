@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Link2, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useMesasStore } from "@/store/mesasStore";
 import { MesaModal } from "@/components/mesas/MesaModal";
 import { MesasFloorPlan } from "@/components/mesas/MesasFloorPlan";
@@ -16,7 +16,6 @@ export default function MesasPage() {
   const mesasSeleccionadas = useMesasStore((s) => s.mesasSeleccionadas);
   const toggleSeleccionMesa = useMesasStore((s) => s.toggleSeleccionMesa);
   const limpiarSeleccion = useMesasStore((s) => s.limpiarSeleccion);
-  const unirMesas = useMesasStore((s) => s.unirMesas);
 
   const cargarMesas = useMesasStore((s) => s.cargarMesas);
   const suscribirCambiosMesas = useMesasStore((s) => s.suscribirCambiosMesas);
@@ -102,12 +101,6 @@ const cancelarEliminarMesa = () => {
     [limpiarSeleccion]
   );
 
-  const handleUnirMesas = () => {
-    if (mesasSeleccionadas.length >= 2) {
-      unirMesas(mesasSeleccionadas);
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Formulario para agregar mesas */}
@@ -183,41 +176,6 @@ const cancelarEliminarMesa = () => {
 
         {error && <p className="text-red-500 text-sm">{error}</p>}
       </form>
-
-      {/* Selection toolbar */}
-      <AnimatePresence>
-        {mesasSeleccionadas.length >= 2 && (
-          <motion.div
-            initial={{ opacity: 0, y: -12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }}
-            className="flex items-center gap-3 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg"
-          >
-            <span className="text-blue-400 text-sm font-semibold">
-              {mesasSeleccionadas.length} mesas seleccionadas
-            </span>
-
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleUnirMesas}
-              aria-label="Unir mesas seleccionadas"
-            >
-              <Link2 size={14} />
-              Unir mesas
-            </Button>
-
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={limpiarSeleccion}
-              aria-label="Cancelar selección"
-            >
-              Cancelar
-            </Button>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {isLoading && mesas.length === 0 && (
         <div className="text-[#BCB9B9]">

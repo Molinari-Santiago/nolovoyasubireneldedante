@@ -1,29 +1,34 @@
-// Barra fija inferior que aparece en modo fusión para confirmar o cancelar la unión de mesas.
+// Barra fija inferior del modo selección: muestra las mesas elegidas y permite
+// confirmar o cancelar la unión. Visible durante todo el modo selección.
 'use client';
 
 import { memo } from 'react';
 import { motion } from 'framer-motion';
-import { Link2, X, ChevronRight } from 'lucide-react';
+import { Link2, X, Loader2 } from 'lucide-react';
 
 interface MesaMergeBarProps {
-  originNumero:   number;
-  selectedNums:   number[];
-  maxReached:     boolean;
-  onConfirm:      () => void;
-  onCancel:       () => void;
-  isLoading?:     boolean;
+  selectedNums: number[];
+  maxReached:   boolean;
+  onConfirm:    () => void;
+  onCancel:     () => void;
+  isLoading?:   boolean;
 }
 
 export const MesaMergeBar = memo(function MesaMergeBar({
-  originNumero,
   selectedNums,
   maxReached,
   onConfirm,
   onCancel,
   isLoading = false,
 }: MesaMergeBarProps) {
-  const canConfirm = selectedNums.length >= 2 && !isLoading;
-  const otherNums  = selectedNums.filter((n) => n !== originNumero);
+  const count      = selectedNums.length;
+  const canConfirm = count >= 2 && !isLoading;
+
+  // Mensaje de ayuda según cantidad seleccionada
+  const hint =
+    count === 0 ? 'Tocá las mesas que querés unir'
+    : count === 1 ? 'Seleccioná al menos 2 mesas'
+    : `${count} mesas seleccionadas`;
 
   return (
     <motion.div
@@ -38,32 +43,23 @@ export const MesaMergeBar = memo(function MesaMergeBar({
         WebkitBackdropFilter: 'blur(14px)',
       }}
     >
-      {/* Vista de mesas seleccionadas */}
+      {/* Mesas seleccionadas + contador */}
       <div className="px-4 pt-3 pb-1 flex items-center gap-2 flex-wrap">
-        {/* Mesa origen */}
-        <div className="flex items-center gap-1.5 bg-amber-600/20 border border-amber-500/40 rounded-lg px-3 py-1.5">
-          <span className="text-amber-400 text-xs font-semibold uppercase tracking-widest">Principal</span>
-          <span className="text-white font-black text-base leading-none">{originNumero}</span>
-        </div>
+        <span className="text-amber-400 text-xs font-semibold uppercase tracking-widest">
+          {hint}
+        </span>
 
-        {otherNums.length > 0 && (
-          <>
+        {count > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap">
             <Link2 size={14} className="text-zinc-600 flex-shrink-0" />
-            {otherNums.map((num) => (
+            {selectedNums.map((num) => (
               <div
                 key={num}
-                className="flex items-center gap-1 bg-zinc-800/80 border border-zinc-700 rounded-lg px-3 py-1.5"
+                className="flex items-center gap-1 bg-amber-600/20 border border-amber-500/40 rounded-lg px-3 py-1.5"
               >
-                <span className="text-zinc-300 font-black text-base leading-none">{num}</span>
+                <span className="text-white font-black text-base leading-none">{num}</span>
               </div>
             ))}
-          </>
-        )}
-
-        {otherNums.length === 0 && (
-          <div className="flex items-center gap-1.5 text-zinc-600 text-xs animate-pulse">
-            <ChevronRight size={13} />
-            <span>Tocá otra mesa para agregarla al grupo</span>
           </div>
         )}
 
@@ -79,7 +75,7 @@ export const MesaMergeBar = memo(function MesaMergeBar({
         <button
           onClick={onCancel}
           disabled={isLoading}
-          className="flex items-center gap-1.5 px-5 py-2.5 text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 rounded-xl text-sm font-medium transition-colors min-h-[48px] flex-1"
+          className="flex items-center justify-center gap-1.5 px-5 py-2.5 text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 rounded-xl text-sm font-medium transition-colors min-h-[48px] flex-1 disabled:opacity-40"
         >
           <X size={15} />
           Cancelar
@@ -93,8 +89,8 @@ export const MesaMergeBar = memo(function MesaMergeBar({
               : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
             }`}
         >
-          <Link2 size={15} />
-          {isLoading ? 'Uniendo...' : `Unir ${selectedNums.length} mesas`}
+          {isLoading ? <Loader2 size={15} className="animate-spin" /> : <Link2 size={15} />}
+          {isLoading ? 'Uniendo...' : 'Confirmar unión'}
         </button>
       </div>
     </motion.div>

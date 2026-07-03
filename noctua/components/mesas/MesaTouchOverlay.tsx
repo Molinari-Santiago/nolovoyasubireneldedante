@@ -19,6 +19,8 @@ interface MesaTouchOverlayProps {
   mesa:            Mesa;
   isMergeMode:     boolean;
   isMergeSelected: boolean;
+  /** Mesa no elegible en modo selección: ignora todos los gestos. */
+  disabled?:       boolean;
   onTap:           (x: number, y: number) => void;
   onDoubleTap:     () => void;
   onLongPress:     (x: number, y: number) => void;
@@ -29,6 +31,7 @@ interface MesaTouchOverlayProps {
 export function MesaTouchOverlay({
   isMergeMode,
   isMergeSelected,
+  disabled = false,
   onTap,
   onDoubleTap,
   onLongPress,
@@ -125,14 +128,14 @@ export function MesaTouchOverlay({
     <>
       {/* Capa táctil — cubre toda el área de la mesa */}
       <div
-        className="absolute inset-0 z-[6] cursor-pointer select-none"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onClick={handleClick}
+        className={`absolute inset-0 z-[6] select-none ${disabled ? 'cursor-not-allowed pointer-events-none' : 'cursor-pointer'}`}
+        onTouchStart={disabled ? undefined : handleTouchStart}
+        onTouchMove={disabled ? undefined : handleTouchMove}
+        onTouchEnd={disabled ? undefined : handleTouchEnd}
+        onMouseDown={disabled ? undefined : handleMouseDown}
+        onMouseMove={disabled ? undefined : handleMouseMove}
+        onMouseUp={disabled ? undefined : handleMouseUp}
+        onClick={disabled ? undefined : handleClick}
         aria-hidden="true"
       />
 

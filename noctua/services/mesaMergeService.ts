@@ -38,19 +38,25 @@ export async function mergeMesas(
   const primaryId    = elegirMesaPrimaria(allIds, originMesaId, pedidosState.getPedidoPorMesa);
   const secondaryIds = allIds.filter((id) => id !== primaryId);
 
-  // Fusionar items de pedidos secundarios al pedido primario en el store
+  // Fusionar items de pedidos secundarios al borrador de la mesa primaria en el store
   const primaryPedido = pedidosState.getPedidoPorMesa(primaryId);
   for (const secId of secondaryIds) {
     const secPedido = pedidosState.getPedidoPorMesa(secId);
     if (secPedido && primaryPedido) {
-      // Agregar cada item del pedido secundario al primario
+      // Asegura un borrador para la primaria antes de transferir sus ítems
+      pedidosState.iniciarPedido(
+        primaryId,
+        primaryPedido.numeroMesa,
+        primaryPedido.zona,
+        primaryPedido.personas
+      );
       for (const item of secPedido.items) {
-        pedidosState.agregarItem({
-          productoId:    item.productoId,
-          nombre:        item.nombre,
-          cantidad:      item.cantidad,
+        pedidosState.agregarItem(primaryId, {
+          productoId:     item.productoId,
+          nombre:         item.nombre,
+          cantidad:       item.cantidad,
           precioUnitario: item.precioUnitario,
-          notas:         item.notas,
+          notas:          item.notas,
         });
       }
     }

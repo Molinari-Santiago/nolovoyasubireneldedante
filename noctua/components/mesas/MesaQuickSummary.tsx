@@ -3,21 +3,23 @@
 
 import { useEffect, useRef, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, Users, ChevronRight, X } from 'lucide-react';
+import { Clock, Users, ChevronRight, X, Plus, Minus } from 'lucide-react';
 import { TEXTO_ESTADO_MESA } from '@/hooks/lib/constants';
-import { COLORES_ESTADO_MESA } from '@/hooks/lib/constants';
+import { COLORES_ESTADO_MESA, COMENSALES_MIN, COMENSALES_MAX_ABSOLUTO } from '@/hooks/lib/constants';
 import { formatARS } from '@/hooks/lib/utils';
+import { useNowTick, formatElapsedShort } from '@/hooks/useMesaTimer';
 import type { MesaQuickSummaryData } from '@/types/mesa';
 
 const PANEL_W = 280;
-const PANEL_H = 340;
+const PANEL_H = 360;
 
 interface MesaQuickSummaryProps {
-  data:         MesaQuickSummaryData;
-  triggerX:     number;
-  triggerY:     number;
-  onClose:      () => void;
-  onAbrirPedido: () => void;
+  data:            MesaQuickSummaryData;
+  triggerX:        number;
+  triggerY:        number;
+  onClose:         () => void;
+  onAbrirPedido:   () => void;
+  onSetComensales: (comensales: number) => void;
 }
 
 export const MesaQuickSummary = memo(function MesaQuickSummary({
@@ -26,8 +28,10 @@ export const MesaQuickSummary = memo(function MesaQuickSummary({
   triggerY,
   onClose,
   onAbrirPedido,
+  onSetComensales,
 }: MesaQuickSummaryProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const now = useNowTick();
 
   const safeX = triggerX + PANEL_W > window.innerWidth  ? triggerX - PANEL_W - 8 : triggerX + 8;
   const safeY = triggerY + PANEL_H > window.innerHeight ? triggerY - PANEL_H      : triggerY;
@@ -48,6 +52,20 @@ export const MesaQuickSummary = memo(function MesaQuickSummary({
   }, [onClose]);
 
   const tienePedido = data.items.length > 0;
+  const esLibre     = data.estado === 'libre';
+  const elapsed     = data.timerInicio ? formatElapsedShort(data.timerInicio, now) : undefined;
+  const comensales  = data.comensales ?? 0;
+
+  // Etiqueta del CTA según estado: libre invita a crear, no a ver un pedido inexistente
+  const ctaLabel = esLibre
+    ? 'Agregar pedido'
+    : tienePedido
+    ? 'Ver pedido completo'
+    : 'Gestionar mesa';
+
+  const setComensalesClamped = (next: number) => {
+    onSetComensales(Math.max(COMENSALES_MIN, Math.min(COMENSALES_MAX_ABSOLUTO, next)));
+  };
 
   return (
     <motion.div
@@ -91,18 +109,47 @@ export const MesaQuickSummary = memo(function MesaQuickSummary({
         </div>
       </div>
 
-      {/* Capacidad */}
+      {/* Capacidad + tiempo transcurrido */}
       <div className="flex items-center gap-1.5 px-4 py-2 text-zinc-500 text-xs">
         <Users size={12} />
-        <span>{data.capacidad} personas</span>
-        {data.tiempoTranscurrido && (
+        <span>Cap. {data.capacidad}</span>
+        {elapsed && (
           <>
             <span className="mx-1 opacity-40">·</span>
             <Clock size={12} />
-            <span>Hace {data.tiempoTranscurrido}</span>
+            <span>Hace {elapsed}</span>
           </>
         )}
       </div>
+
+      {/* Comensales — editable en el acto (solo mesas ocupadas) */}
+      {!esLibre && (
+        <div className="flex items-center justify-between px-4 pb-2">
+          <span className="text-zinc-400 text-xs font-semibold uppercase tracking-widest">
+            Comensales
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setComensalesClamped(comensales - 1)}
+              disabled={comensales <= COMENSALES_MIN}
+              className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 text-white flex items-center justify-center hover:bg-zinc-700 transition-colors disabled:opacity-30"
+              aria-label="Quitar comensal"
+            >
+              <Minus size={14} />
+            </button>
+            <span className="text-white font-bold text-base w-6 text-center tabular-nums">
+              {comensales || '—'}
+            </span>
+            <button
+              onClick={() => setComensalesClamped(comensales + 1)}
+              className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 text-white flex items-center justify-center hover:bg-zinc-700 transition-colors"
+              aria-label="Agregar comensal"
+            >
+              <Plus size={14} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Items del pedido */}
       <div className="px-4 pb-2">
@@ -143,7 +190,7 @@ export const MesaQuickSummary = memo(function MesaQuickSummary({
           onClick={onAbrirPedido}
           className="w-full flex items-center justify-between bg-amber-600/10 hover:bg-amber-600/20 border border-amber-600/30 rounded-xl px-4 py-2.5 text-amber-400 text-sm font-semibold transition-colors min-h-[44px]"
         >
-          <span>Abrir pedido completo</span>
+          <span>{ctaLabel}</span>
           <ChevronRight size={16} />
         </button>
       </div>
@@ -153,11 +200,12 @@ export const MesaQuickSummary = memo(function MesaQuickSummary({
 
 // Wrapper con AnimatePresence para usar desde el exterior
 interface MesaQuickSummaryWrapperProps {
-  data:         MesaQuickSummaryData | null;
-  triggerX:     number;
-  triggerY:     number;
-  onClose:      () => void;
-  onAbrirPedido: () => void;
+  data:            MesaQuickSummaryData | null;
+  triggerX:        number;
+  triggerY:        number;
+  onClose:         () => void;
+  onAbrirPedido:   () => void;
+  onSetComensales: (comensales: number) => void;
 }
 
 export function MesaQuickSummaryWrapper(props: MesaQuickSummaryWrapperProps) {

@@ -35,6 +35,7 @@ function mapBackendPedido(p: {
   mesaId?: string;
   mesa_id?: string;
   estado: string;
+  comensales?: number | null;
   total: number;
   subtotal?: number;
   abiertoEn?: string;
@@ -83,7 +84,8 @@ function mapBackendPedido(p: {
     estado: (p.estado || "pendiente") as EstadoCocina,
     creadoEn: new Date(p.abiertoEn || p.abierto_en || p.createdAt || p.created_at || new Date().toISOString()),
     actualizadoEn: new Date(),
-    personas: 1,
+    // `comensales` es la fuente persistida; `personas` se conserva por compatibilidad
+    personas: p.comensales != null ? Number(p.comensales) : 1,
   };
 }
 
@@ -147,7 +149,7 @@ export async function crearPedido(data: {
     "/pedidos",
     {
       method: "POST",
-      body: JSON.stringify({ mesaId: data.mesaId }),
+      body: JSON.stringify({ mesaId: data.mesaId, comensales: data.personas }),
     }
   );
 
@@ -174,6 +176,35 @@ export async function crearPedido(data: {
   }
 }
 
+type BackendPedido = Parameters<typeof mapBackendPedido>[0];
+
+// Abre (o reutiliza) el pedido de una mesa. Devuelve el pedido crudo del backend
+// (incluye items/detalles) para poder distinguir un pedido preexistente de uno nuevo.
+export async function abrirPedidoRow(mesaId: string, comensales?: number): Promise<BackendPedido> {
+  const { pedido } = await apiFetch<{ pedido: BackendPedido }>("/pedidos", {
+    method: "POST",
+    body: JSON.stringify({ mesaId, comensales }),
+  });
+  return pedido;
+}
+
+// Agrega un producto a un pedido existente. Lanza Error con el mensaje del backend
+// (ej: "No hay stock suficiente de X") si el descuento de stock falla.
+export async function agregarProductoAPedido(
+  pedidoId: string,
+  item: { productoId: string; cantidad: number; notas?: string }
+): Promise<void> {
+  await apiFetch(`/pedidos/${pedidoId}/productos`, {
+    method: "POST",
+    body: JSON.stringify({ productoId: item.productoId, cantidad: item.cantidad, notas: item.notas }),
+  });
+}
+
+export async function obtenerPedidoPorId(pedidoId: string): Promise<Pedido> {
+  const { pedido } = await apiFetch<{ pedido: BackendPedido }>(`/pedidos/${pedidoId}`);
+  return mapBackendPedido(pedido);
+}
+
 export async function actualizarEstadoPedido(
   pedidoId: string,
   estado: EstadoCocina
@@ -181,6 +212,16 @@ export async function actualizarEstadoPedido(
   await apiFetch(`/pedidos/${pedidoId}/estado`, {
     method: "PATCH",
     body: JSON.stringify({ estado }),
+  });
+
+  return { success: true };
+}
+
+// Actualiza los comensales de un pedido ya persistido en el backend.
+export async function actualizarComensales(pedidoId: string, comensales: number) {
+  await apiFetch(`/pedidos/${pedidoId}/comensales`, {
+    method: "PATCH",
+    body: JSON.stringify({ comensales }),
   });
 
   return { success: true };

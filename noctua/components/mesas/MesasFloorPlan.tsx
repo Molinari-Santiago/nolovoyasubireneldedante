@@ -10,10 +10,16 @@ import { MesaMergeBar } from './MesaMergeBar';
 import { useMesaMerge } from '@/hooks/useMesaMerge';
 import { useMesaQuickSummary } from '@/hooks/useMesaQuickSummary';
 import { mergeMesas, unmergeMesas } from '@/services/mesaMergeService';
+import { setComensales } from '@/services/comensalesService';
 import { useMesasStore } from '@/store/mesasStore';
 import { toast } from '@/components/ui/Toast';
 import { TEXTO_ESTADO_MESA } from '@/hooks/lib/constants';
 import type { Mesa, EstadoMesa, ContextMenuAction, MesaGestureCallbacks } from '@/types/mesa';
+
+/** Una mesa es elegible para unión si no forma parte ya de un grupo unido. */
+function esElegibleParaUnir(mesa: Mesa): boolean {
+  return !mesa.mesasUnidas || mesa.mesasUnidas.length === 0;
+}
 
 interface MesasFloorPlanProps {
   mesas:              Mesa[];
@@ -61,14 +67,10 @@ export const MesasFloorPlan = memo(function MesasFloorPlan({
   // ── Gestos ────────────────────────────────────────────────────────────────
 
   const handleTap = useCallback((mesaId: string, x: number, y: number) => {
-    // Paso 1: picking de origen → activar fusión con esta mesa como principal
-    if (merge.isPickingOrigin) {
-      merge.activateMerge(mesaId);
-      return;
-    }
-    // Paso 2: fusión activa → agregar/quitar del grupo
-    if (merge.isActive) {
-      merge.toggleSelection(mesaId);
+    // Modo selección de unión → agregar/quitar del grupo (solo mesas elegibles)
+    if (merge.isSelectionMode) {
+      const mesa = mesas.find((m) => m.id === mesaId);
+      if (mesa && esElegibleParaUnir(mesa)) merge.toggleSelection(mesaId);
       return;
     }
     // Toggle quick summary: cerrar si ya está abierta para esa mesa
@@ -80,25 +82,25 @@ export const MesasFloorPlan = memo(function MesasFloorPlan({
     }
     // Mantener compatibilidad con la lógica de selección desktop
     onSingleClick(mesaId);
-  }, [merge, summary, onSingleClick]);
+  }, [merge, summary, mesas, onSingleClick]);
 
   const handleDoubleTap = useCallback((mesa: Mesa) => {
-    if (merge.isActive || merge.isPickingOrigin) return;
+    if (merge.isSelectionMode) return;
     summary.close();
     setContextMenu(null);
     onDoubleClick(mesa);
-  }, [merge.isActive, merge.isPickingOrigin, summary, onDoubleClick]);
+  }, [merge.isSelectionMode, summary, onDoubleClick]);
 
   const handleLongPress = useCallback((mesaId: string, x: number, y: number) => {
-    if (merge.isActive || merge.isPickingOrigin) return;
+    if (merge.isSelectionMode) return;
     summary.close();
     const mesa = mesas.find((m) => m.id === mesaId);
     if (!mesa) return;
     setContextMenu({ mesa, x, y });
-  }, [merge.isActive, merge.isPickingOrigin, summary, mesas]);
+  }, [merge.isSelectionMode, summary, mesas]);
 
   const handleSwipe = useCallback(async (mesaId: string, direction: 'left' | 'right') => {
-    if (merge.isActive || merge.isPickingOrigin) return;
+    if (merge.isSelectionMode) return;
     const mesa = mesas.find((m) => m.id === mesaId);
     if (!mesa) return;
 
@@ -123,7 +125,7 @@ export const MesasFloorPlan = memo(function MesasFloorPlan({
     } catch {
       toast.error('Error', 'No se pudo cambiar el estado de la mesa');
     }
-  }, [merge.isActive, merge.isPickingOrigin, mesas, cambiarEstadoMesa]);
+  }, [merge.isSelectionMode, mesas, cambiarEstadoMesa]);
 
   // ── Acciones del menú contextual ─────────────────────────────────────────
 
@@ -173,9 +175,15 @@ export const MesasFloorPlan = memo(function MesasFloorPlan({
         }
         break;
 
+      case 'editar_comensales':
+        // Abre la gestión de la mesa (modal) donde se editan los comensales
+        onDoubleClick(mesa);
+        break;
+
       case 'unir_mesa':
-        // Desde el menú contextual: la mesa long-presionada es directamente la principal
-        merge.activateMerge(mesa.id);
+        // Desde el menú contextual: entrar en modo selección con esta mesa ya elegida
+        merge.enterSelectionMode();
+        merge.toggleSelection(mesa.id);
         break;
 
       case 'separar_mesa':
@@ -192,22 +200,26 @@ export const MesasFloorPlan = memo(function MesasFloorPlan({
   // ── Fusión de mesas ───────────────────────────────────────────────────────
 
   const handleConfirmMerge = useCallback(async () => {
-    if (!merge.originMesaId || merge.selectedIds.length < 2) return;
+    if (merge.selectedIds.length < 2) return;
     setMergeLoading(true);
-    const secondary = merge.selectedIds.filter((id) => id !== merge.originMesaId);
+    // La primaria real la re-elige mesaMergeService por antigüedad del pedido;
+    // acá alcanza con pasar la primera como origen y el resto como secundarias.
+    const [origin, ...secondary] = merge.selectedIds;
     try {
-      await mergeMesas(merge.originMesaId, secondary);
-      const mesaOrigen = mesas.find((m) => m.id === merge.originMesaId);
+      await mergeMesas(origin, secondary);
       toast.success('Mesas unidas correctamente', `Grupo de ${merge.selectedIds.length} mesas`);
-      merge.cancelMerge();
-      // Reabrir el pedido de la mesa origen fusionada
-      if (mesaOrigen) onDoubleClick(mesaOrigen);
+      merge.exitSelectionMode();
     } catch {
       toast.error('Error al unir mesas', 'No se pudo completar la fusión');
     } finally {
       setMergeLoading(false);
     }
-  }, [merge, mesas, onDoubleClick]);
+  }, [merge]);
+
+  const handleToggleSelectionMode = useCallback(() => {
+    if (merge.isSelectionMode) merge.exitSelectionMode();
+    else { summary.close(); setContextMenu(null); merge.enterSelectionMode(); }
+  }, [merge, summary]);
 
   // ── Callbacks de Quick Summary ────────────────────────────────────────────
 
@@ -218,6 +230,15 @@ export const MesasFloorPlan = memo(function MesasFloorPlan({
     if (mesa) onDoubleClick(mesa);
   }, [summary, mesas, onDoubleClick]);
 
+  const handleSetComensales = useCallback(async (comensales: number) => {
+    if (!summary.activeMesaId) return;
+    try {
+      await setComensales(summary.activeMesaId, comensales);
+    } catch {
+      toast.error('Error', 'No se pudieron actualizar los comensales');
+    }
+  }, [summary.activeMesaId]);
+
   // ── Objeto de callbacks de gestos (estable entre renders) ────────────────
 
   const gestures: MesaGestureCallbacks = {
@@ -227,29 +248,23 @@ export const MesasFloorPlan = memo(function MesasFloorPlan({
     onSwipe:     handleSwipe,
   };
 
-  // Mesa origen del merge para mostrar número en el MesaMergeBar
-  const mesaOrigen   = mesas.find((m) => m.id === merge.originMesaId);
+  // Números de mesas seleccionadas para mostrar en el MesaMergeBar
   const selectedNums = merge.selectedIds
     .map((id) => mesas.find((m) => m.id === id)?.numero ?? 0)
     .filter(Boolean);
 
-  const isMergeActive = merge.isActive || merge.isPickingOrigin;
-
   return (
-    <div className={`relative ${isMergeActive ? 'pb-24' : ''}`}>
+    <div className={`relative ${merge.isSelectionMode ? 'pb-28' : ''}`}>
       {/* Canvas del plano de planta */}
       <MesasCanvasLayout
         mesas={mesas}
         mesasSeleccionadas={mesasSeleccionadas}
         mergeSelectedIds={merge.selectedIds}
-        isMergeMode={merge.isActive}
-        isPickingOrigin={merge.isPickingOrigin}
-        originNumero={mesaOrigen?.numero}
+        isSelectionMode={merge.isSelectionMode}
         mozoRequeridoIds={mozoRequeridoIds}
         gestures={gestures}
         onDelete={onDelete}
-        onStartMerge={merge.startPicking}
-        onCancelMerge={merge.cancelMerge}
+        onToggleSelectionMode={handleToggleSelectionMode}
       />
 
       {/* Leyenda de estados */}
@@ -276,18 +291,18 @@ export const MesasFloorPlan = memo(function MesasFloorPlan({
         triggerY={summaryPos.y}
         onClose={summary.close}
         onAbrirPedido={handleOpenSummaryPedido}
+        onSetComensales={handleSetComensales}
       />
 
-      {/* Barra de fusión */}
+      {/* Barra de confirmación de unión (visible durante todo el modo selección) */}
       <AnimatePresence>
-        {merge.isActive && mesaOrigen && (
+        {merge.isSelectionMode && (
           <MesaMergeBar
             key="merge-bar"
-            originNumero={mesaOrigen.numero}
             selectedNums={selectedNums}
             maxReached={merge.maxReached}
             onConfirm={handleConfirmMerge}
-            onCancel={merge.cancelMerge}
+            onCancel={merge.exitSelectionMode}
             isLoading={mergeLoading}
           />
         )}
