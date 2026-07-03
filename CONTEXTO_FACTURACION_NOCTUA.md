@@ -1,4 +1,4 @@
-# Contexto de facturacion NOCTUA
+﻿# Contexto de facturacion NOCTUA
 
 Fecha de analisis: 2026-07-02
 
@@ -2299,6 +2299,1443 @@ export const facturasService = {
 };
 ```
 
+## Archivos frontend clave de facturacion
+
+Los siguientes contenidos fueron copiados desde los archivos actuales del repositorio para completar el contexto del modulo frontend de facturacion y cuenta corriente.
+
+## Archivo: noctua/app/dashboard/facturas/page.tsx
+
+```tsx
+'use client';
+
+import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  AlertTriangle,
+  CheckCircle,
+  RefreshCcw,
+  ShieldCheck,
+  Users,
+} from 'lucide-react';
+import { EstadoArca, type ArcaEstado } from '@/components/facturas/EstadoArca';
+import { FormularioCobro } from '@/components/facturas/FormularioCobro';
+import { PedidoSelector } from '@/components/facturas/PedidoSelector';
+import { TablaFacturas } from '@/components/facturas/TablaFacturas';
+import { cn } from '@/hooks/lib/utils';
+import {
+  facturasService,
+  type ClienteFacturaInput,
+  type Factura,
+  type FacturasFiltros,
+  type MetodoPagoFactura,
+  type PedidoListoFactura,
+  type Pago,
+  type TipoComprobante,
+} from '@/services/facturasService';
+
+type MensajeUI = {
+  tipo: 'success' | 'warning' | 'error';
+  titulo: string;
+  detalle?: string;
+} | null;
+
+function createIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function descargarBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+export default function FacturasPage() {
+  const [pedidos, setPedidos] = useState<PedidoListoFactura[]>([]);
+  const [facturas, setFacturas] = useState<Factura[]>([]);
+  const [pedidoSeleccionadoId, setPedidoSeleccionadoId] = useState('');
+  const [arca, setArca] = useState<ArcaEstado>(null);
+  const [mensaje, setMensaje] = useState<MensajeUI>(null);
+  const [loading, setLoading] = useState(false);
+  const [verificandoArca, setVerificandoArca] = useState(false);
+  const [cobrando, setCobrando] = useState(false);
+  const [exportando, setExportando] = useState(false);
+  const exportandoRef = useRef(false);
+  const [metodoPago, setMetodoPago] = useState<MetodoPagoFactura>('efectivo');
+  const [tipoComprobante, setTipoComprobante] = useState<TipoComprobante>(6);
+  const [marcaTarjeta, setMarcaTarjeta] = useState('Visa');
+  const [bancoTarjeta, setBancoTarjeta] = useState('');
+  const [proveedorBilletera, setProveedorBilletera] = useState('Mercado Pago');
+  const [referenciaPago, setReferenciaPago] = useState('');
+  const [recibidoPor, setRecibidoPor] = useState('admin');
+  const [montoRecibido, setMontoRecibido] = useState<number>(0);
+  const [pagoPendiente, setPagoPendiente] = useState<Pago | null>(null);
+  const [clienteCuenta, setClienteCuenta] = useState<ClienteFacturaInput>({});
+  const [filtros, setFiltros] = useState<FacturasFiltros>({});
+
+  const pedidoSeleccionado = useMemo(() => {
+    return pedidos.find((pedido) => pedido.id === pedidoSeleccionadoId) || null;
+  }, [pedidos, pedidoSeleccionadoId]);
+
+  const vuelto = useMemo(() => {
+    if (!pedidoSeleccionado) return 0;
+    const calculado = Number(montoRecibido || 0) - Number(pedidoSeleccionado.total || 0);
+    return calculado > 0 ? calculado : 0;
+  }, [montoRecibido, pedidoSeleccionado]);
+
+  const mostrarMensaje = useCallback((nuevoMensaje: MensajeUI) => {
+    setMensaje(nuevoMensaje);
+  }, []);
+
+  const cargarDatos = useCallback(async () => {
+    try {
+      setLoading(true);
+
+      const [pedidosListos, facturasEmitidas] = await Promise.all([
+        facturasService.obtenerPedidosListos(),
+        facturasService.obtenerFacturas(filtros),
+      ]);
+
+      setPedidos(Array.isArray(pedidosListos) ? pedidosListos : []);
+      setFacturas(Array.isArray(facturasEmitidas) ? facturasEmitidas : []);
+
+      if (!pedidoSeleccionadoId && pedidosListos.length > 0) {
+        setPedidoSeleccionadoId(pedidosListos[0].id);
+        setMontoRecibido(Number(pedidosListos[0].total || 0));
+      }
+    } catch (error) {
+      mostrarMensaje({
+        tipo: 'error',
+        titulo: 'Error al cargar facturas',
+        detalle: error instanceof Error ? error.message : 'No se pudieron cargar los datos.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [filtros, mostrarMensaje, pedidoSeleccionadoId]);
+
+  const verificarARCA = useCallback(async () => {
+    try {
+      setVerificandoArca(true);
+      const response = await facturasService.verificarARCA();
+      setArca(response.arca);
+      mostrarMensaje({
+        tipo: 'success',
+        titulo: 'ARCA verificado',
+        detalle: response.arca.mensaje,
+      });
+    } catch (error) {
+      const detalle = error instanceof Error ? error.message : 'No se pudo verificar ARCA';
+      setArca({ ok: false, mensaje: detalle });
+      mostrarMensaje({ tipo: 'error', titulo: 'Error ARCA', detalle });
+    } finally {
+      setVerificandoArca(false);
+    }
+  }, [mostrarMensaje]);
+
+  const limpiarFormulario = useCallback(() => {
+    setPedidoSeleccionadoId('');
+    setMetodoPago('efectivo');
+    setTipoComprobante(6);
+    setMarcaTarjeta('Visa');
+    setBancoTarjeta('');
+    setProveedorBilletera('Mercado Pago');
+    setReferenciaPago('');
+    setRecibidoPor('admin');
+    setMontoRecibido(0);
+    setPagoPendiente(null);
+    setClienteCuenta({});
+  }, []);
+
+  const seleccionarPedido = useCallback((pedidoId: string) => {
+    const nuevoPedido = pedidos.find((pedido) => pedido.id === pedidoId);
+    setPedidoSeleccionadoId(pedidoId);
+    setMontoRecibido(Number(nuevoPedido?.total || 0));
+    setPagoPendiente(null);
+  }, [pedidos]);
+
+  const cobrarPedido = useCallback(async () => {
+    if (!pedidoSeleccionado) {
+      mostrarMensaje({ tipo: 'warning', titulo: 'Selecciona un pedido', detalle: 'No hay pedido seleccionado.' });
+      return;
+    }
+
+    if (!arca?.ok) {
+      mostrarMensaje({ tipo: 'warning', titulo: 'Verifica ARCA', detalle: 'Antes de cobrar tenes que verificar ARCA.' });
+      return;
+    }
+
+    if ((metodoPago === 'debito' || metodoPago === 'credito') && !bancoTarjeta.trim()) {
+      mostrarMensaje({ tipo: 'warning', titulo: 'Falta banco', detalle: 'Indica el banco de la tarjeta.' });
+      return;
+    }
+
+    if (metodoPago === 'billetera_virtual' && !proveedorBilletera.trim()) {
+      mostrarMensaje({ tipo: 'warning', titulo: 'Falta billetera', detalle: 'Indica la billetera virtual utilizada.' });
+      return;
+    }
+
+    if (metodoPago === 'efectivo' && Number(montoRecibido || 0) < Number(pedidoSeleccionado.total || 0)) {
+      mostrarMensaje({ tipo: 'warning', titulo: 'Monto insuficiente', detalle: 'El monto recibido no puede ser menor al total del pedido.' });
+      return;
+    }
+
+    if (metodoPago === 'cuenta_corriente' && !clienteCuenta.nombre?.trim()) {
+      mostrarMensaje({ tipo: 'warning', titulo: 'Falta cliente', detalle: 'La cuenta corriente necesita un cliente.' });
+      return;
+    }
+
+    try {
+      setCobrando(true);
+
+      const response = await facturasService.cobrarPedido({
+        pedidoId: pedidoSeleccionado.id,
+        metodoPago,
+        tipoComprobante,
+        tipoTarjeta: metodoPago === 'debito' || metodoPago === 'credito' ? metodoPago : undefined,
+        marcaTarjeta: metodoPago === 'debito' || metodoPago === 'credito' ? marcaTarjeta : undefined,
+        bancoTarjeta: metodoPago === 'debito' || metodoPago === 'credito' ? bancoTarjeta : undefined,
+        proveedorBilletera: metodoPago === 'billetera_virtual' ? proveedorBilletera : undefined,
+        referenciaPago,
+        recibidoPor,
+        montoRecibido,
+        vuelto,
+        cliente: metodoPago === 'cuenta_corriente' ? clienteCuenta : undefined,
+        idempotencyKey: metodoPago === 'cuenta_corriente' ? createIdempotencyKey() : undefined,
+      });
+
+      if (response.requiereConfirmacion) {
+        setPagoPendiente(response.pago);
+        mostrarMensaje({
+          tipo: 'warning',
+          titulo: 'Efectivo pendiente',
+          detalle: 'El pago quedo guardado temporalmente. Confirmalo para cerrar la mesa.',
+        });
+        return;
+      }
+
+      mostrarMensaje({
+        tipo: 'success',
+        titulo: metodoPago === 'cuenta_corriente' ? 'Debito registrado' : 'Factura emitida',
+        detalle: metodoPago === 'cuenta_corriente'
+          ? 'La factura quedo vinculada a la cuenta corriente del cliente.'
+          : 'La mesa fue cerrada correctamente.',
+      });
+      limpiarFormulario();
+      await cargarDatos();
+    } catch (error) {
+      try {
+        const facturasActualizadas = await facturasService.obtenerFacturas(filtros);
+        const facturaCreada = facturasActualizadas.find((factura) => factura.pedidoId === pedidoSeleccionado.id);
+
+        if (facturaCreada) {
+          mostrarMensaje({ tipo: 'success', titulo: 'Factura emitida', detalle: 'La operacion se completo correctamente.' });
+          limpiarFormulario();
+          await cargarDatos();
+          return;
+        }
+      } catch {
+        // Si la reconsulta falla, mostramos el error original.
+      }
+
+      mostrarMensaje({
+        tipo: 'error',
+        titulo: 'Error al cobrar',
+        detalle: error instanceof Error ? error.message : 'No se pudo cobrar el pedido',
+      });
+    } finally {
+      setCobrando(false);
+    }
+  }, [
+    arca,
+    bancoTarjeta,
+    cargarDatos,
+    clienteCuenta,
+    filtros,
+    limpiarFormulario,
+    marcaTarjeta,
+    metodoPago,
+    montoRecibido,
+    pedidoSeleccionado,
+    proveedorBilletera,
+    recibidoPor,
+    referenciaPago,
+    tipoComprobante,
+    vuelto,
+    mostrarMensaje,
+  ]);
+
+  const confirmarEfectivo = useCallback(async () => {
+    if (!pagoPendiente) return;
+
+    try {
+      setCobrando(true);
+      await facturasService.confirmarPagoEfectivo({
+        pagoId: pagoPendiente.id,
+        recibidoPor,
+        montoRecibido,
+        vuelto,
+      });
+
+      mostrarMensaje({ tipo: 'success', titulo: 'Efectivo confirmado', detalle: 'La factura fue emitida y la mesa fue cerrada.' });
+      setPagoPendiente(null);
+      limpiarFormulario();
+      await cargarDatos();
+    } catch (error) {
+      mostrarMensaje({
+        tipo: 'error',
+        titulo: 'Error al confirmar efectivo',
+        detalle: error instanceof Error ? error.message : 'No se pudo confirmar el efectivo',
+      });
+    } finally {
+      setCobrando(false);
+    }
+  }, [cargarDatos, limpiarFormulario, montoRecibido, mostrarMensaje, pagoPendiente, recibidoPor, vuelto]);
+
+  const exportarFacturas = useCallback(async () => {
+    if (exportandoRef.current) return;
+
+    exportandoRef.current = true;
+    try {
+      setExportando(true);
+      const archivo = await facturasService.exportarFacturas(filtros);
+      descargarBlob(archivo.blob, archivo.filename);
+      mostrarMensaje({ tipo: 'success', titulo: 'Exportacion lista', detalle: 'El archivo Excel fue generado.' });
+    } catch (error) {
+      mostrarMensaje({
+        tipo: 'error',
+        titulo: 'Error al exportar',
+        detalle: error instanceof Error ? error.message : 'No se pudo generar el Excel.',
+      });
+    } finally {
+      exportandoRef.current = false;
+      setExportando(false);
+    }
+  }, [filtros, mostrarMensaje]);
+
+  const handleCobrar = useCallback(() => {
+    void cobrarPedido();
+  }, [cobrarPedido]);
+
+  const handleConfirmarEfectivo = useCallback(() => {
+    void confirmarEfectivo();
+  }, [confirmarEfectivo]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void cargarDatos();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [cargarDatos]);
+
+  return (
+    <div className="min-h-screen bg-black text-white p-4 sm:p-6 space-y-6">
+      <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h1 className="font-display text-2xl sm:text-3xl font-black tracking-[0.18em] uppercase">Facturas</h1>
+          <p className="text-sm text-[#676B67] mt-1">Selecciona un pedido listo para cobrar, verifica ARCA y emite la factura.</p>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href="/dashboard/facturas/cuentas-corrientes"
+            className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-300 hover:bg-emerald-500/20"
+          >
+            <Users size={16} />
+            Cuentas corrientes
+          </Link>
+
+          <button
+            type="button"
+            onClick={() => void verificarARCA()}
+            disabled={verificandoArca}
+            className="flex items-center gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm font-bold text-blue-300 hover:bg-blue-500/20 disabled:opacity-50"
+          >
+            <ShieldCheck size={16} />
+            {verificandoArca ? 'Verificando...' : 'Verificar ARCA'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void cargarDatos()}
+            disabled={loading}
+            className="flex items-center gap-2 rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-4 py-3 text-sm font-bold text-[#BCB9B9] hover:bg-[#151515] disabled:opacity-50"
+          >
+            <RefreshCcw size={16} />
+            Actualizar
+          </button>
+        </div>
+      </header>
+
+      {mensaje && (
+        <section
+          className={cn(
+            'rounded-2xl border p-4 flex items-start gap-3',
+            mensaje.tipo === 'success' && 'border-green-500/30 bg-green-500/10 text-green-200',
+            mensaje.tipo === 'warning' && 'border-yellow-500/30 bg-yellow-500/10 text-yellow-200',
+            mensaje.tipo === 'error' && 'border-red-500/30 bg-red-500/10 text-red-200'
+          )}
+        >
+          {mensaje.tipo === 'success' ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
+          <div>
+            <h2 className="text-sm font-black uppercase tracking-widest">{mensaje.titulo}</h2>
+            {mensaje.detalle && <p className="text-sm mt-1 opacity-80">{mensaje.detalle}</p>}
+          </div>
+        </section>
+      )}
+
+      <EstadoArca arca={arca} />
+
+      <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-6">
+        <PedidoSelector
+          pedidos={pedidos}
+          pedidoSeleccionado={pedidoSeleccionado}
+          pedidoSeleccionadoId={pedidoSeleccionadoId}
+          onSeleccionarPedido={seleccionarPedido}
+        />
+        <FormularioCobro
+          pedidoSeleccionado={pedidoSeleccionado}
+          metodoPago={metodoPago}
+          tipoComprobante={tipoComprobante}
+          marcaTarjeta={marcaTarjeta}
+          bancoTarjeta={bancoTarjeta}
+          proveedorBilletera={proveedorBilletera}
+          referenciaPago={referenciaPago}
+          recibidoPor={recibidoPor}
+          montoRecibido={montoRecibido}
+          vuelto={vuelto}
+          clienteCuenta={clienteCuenta}
+          pagoPendiente={pagoPendiente}
+          cobrando={cobrando}
+          onMetodoPagoChange={setMetodoPago}
+          onTipoComprobanteChange={setTipoComprobante}
+          onMarcaTarjetaChange={setMarcaTarjeta}
+          onBancoTarjetaChange={setBancoTarjeta}
+          onProveedorBilleteraChange={setProveedorBilletera}
+          onReferenciaPagoChange={setReferenciaPago}
+          onRecibidoPorChange={setRecibidoPor}
+          onMontoRecibidoChange={setMontoRecibido}
+          onClienteCuentaChange={setClienteCuenta}
+          onCobrar={handleCobrar}
+          onConfirmarEfectivo={handleConfirmarEfectivo}
+        />
+      </div>
+
+      <TablaFacturas
+        facturas={facturas}
+        filtros={filtros}
+        exportando={exportando}
+        onFiltroChange={setFiltros}
+        onExportar={() => void exportarFacturas()}
+      />
+    </div>
+  );
+}
+```
+
+## Archivo: noctua/app/dashboard/facturas/cuentas-corrientes/page.tsx
+
+```tsx
+'use client';
+
+import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowUpRight, RefreshCcw, Search } from 'lucide-react';
+import { formatearARS } from '@/components/facturas/facturasConstants';
+import { facturasService, type CuentaCorrienteResumen } from '@/services/facturasService';
+import { useAuthStore } from '@/store/authStore';
+
+export default function CuentasCorrientesPage() {
+  const usuario = useAuthStore((state) => state.usuario);
+  const autorizado = usuario?.rol === 'admin' || usuario?.rol === 'cajero';
+  const [cuentas, setCuentas] = useState<CuentaCorrienteResumen[]>([]);
+  const [busqueda, setBusqueda] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const cargar = useCallback(async () => {
+    if (!autorizado) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+      setCuentas(await facturasService.obtenerCuentasCorrientes());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudieron cargar las cuentas corrientes.');
+    } finally {
+      setLoading(false);
+    }
+  }, [autorizado]);
+
+  const cuentasFiltradas = useMemo(() => {
+    const texto = busqueda.trim().toLowerCase();
+    if (!texto) return cuentas;
+
+    return cuentas.filter((cuenta) => {
+      const cliente = cuenta.cliente;
+      return [cliente.nombre, cliente.documento, cliente.email]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(texto));
+    });
+  }, [busqueda, cuentas]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void cargar();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [cargar]);
+
+  if (!autorizado) {
+    return (
+      <div className="min-h-screen bg-black text-white p-6">
+        <h1 className="text-2xl font-black tracking-widest uppercase">Acceso restringido</h1>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-black text-white p-4 sm:p-6 space-y-6">
+      <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h1 className="font-display text-2xl sm:text-3xl font-black tracking-[0.18em] uppercase">Cuentas corrientes</h1>
+          <p className="text-sm text-[#676B67] mt-1">Saldos calculados desde movimientos contables.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void cargar()}
+          disabled={loading}
+          className="inline-flex items-center gap-2 rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-4 py-3 text-sm font-bold text-[#BCB9B9] hover:bg-[#151515] disabled:opacity-50"
+        >
+          <RefreshCcw size={16} />
+          Actualizar
+        </button>
+      </header>
+
+      <section className="rounded-2xl border border-[#1a1a1a] bg-[#080808] p-5">
+        <label className="relative block">
+          <Search className="absolute left-4 top-1/2 mt-1 text-[#676B67]" size={18} />
+          <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Buscar cliente</span>
+          <input
+            value={busqueda}
+            onChange={(event) => setBusqueda(event.target.value)}
+            className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black py-3 pl-11 pr-4 text-sm text-white focus:outline-none focus:border-white/40"
+          />
+        </label>
+      </section>
+
+      {error && (
+        <section className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+          {error}
+        </section>
+      )}
+
+      <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {cuentasFiltradas.map((cuenta) => {
+          const saldoAFavor = cuenta.saldo < 0;
+
+          return (
+            <Link
+              key={cuenta.cuentaCorrienteId}
+              href={`/dashboard/facturas/cuentas-corrientes/${cuenta.cliente.id}`}
+              className="rounded-2xl border border-[#1a1a1a] bg-[#080808] p-5 transition hover:border-white/20"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-black text-white">{cuenta.cliente.nombre}</h2>
+                  <p className="text-sm text-[#676B67]">{cuenta.cliente.documento || 'Sin documento'}</p>
+                </div>
+                <ArrowUpRight size={18} className="text-[#676B67]" />
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                <div>
+                  <p className="text-[#676B67]">Saldo</p>
+                  <p className={saldoAFavor ? 'font-mono font-black text-emerald-300' : 'font-mono font-black text-white'}>
+                    {formatearARS(cuenta.saldo)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[#676B67]">Pendientes</p>
+                  <p className="font-mono font-black">{cuenta.cantidadFacturasPendientes}</p>
+                </div>
+                <div>
+                  <p className="text-[#676B67]">Vencida</p>
+                  <p className="font-mono font-black">{formatearARS(cuenta.deudaVencida)}</p>
+                </div>
+                <div>
+                  <p className="text-[#676B67]">Estado</p>
+                  <p className="font-black capitalize">{cuenta.estado}</p>
+                </div>
+              </div>
+
+              {cuenta.ultimoMovimiento && (
+                <p className="mt-4 text-xs text-[#676B67]">
+                  Ultimo movimiento: {cuenta.ultimoMovimiento.descripcion}
+                </p>
+              )}
+            </Link>
+          );
+        })}
+      </section>
+
+      {!loading && cuentasFiltradas.length === 0 && (
+        <p className="text-sm text-[#676B67]">No hay cuentas corrientes para mostrar.</p>
+      )}
+    </div>
+  );
+}
+```
+
+## Archivo: noctua/app/dashboard/facturas/cuentas-corrientes/[clienteId]/page.tsx
+
+```tsx
+'use client';
+
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Download, RefreshCcw, Save } from 'lucide-react';
+import { formatearARS } from '@/components/facturas/facturasConstants';
+import {
+  facturasService,
+  type CuentaCorrienteDetalle,
+  type MovimientoCuentaCorriente,
+} from '@/services/facturasService';
+import { useAuthStore } from '@/store/authStore';
+
+function createIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function descargarBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+export default function CuentaCorrienteDetallePage() {
+  const params = useParams<{ clienteId: string }>();
+  const clienteId = params.clienteId;
+  const usuario = useAuthStore((state) => state.usuario);
+  const autorizado = usuario?.rol === 'admin' || usuario?.rol === 'cajero';
+  const [detalle, setDetalle] = useState<CuentaCorrienteDetalle | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [exportando, setExportando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tipoFiltro, setTipoFiltro] = useState('');
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const [pago, setPago] = useState({
+    importe: '',
+    medioPago: 'efectivo',
+    referencia: '',
+    observaciones: '',
+    fechaPago: '',
+  });
+  const [ajuste, setAjuste] = useState({
+    tipo: 'DEBIT' as 'DEBIT' | 'CREDIT',
+    importe: '',
+    motivo: '',
+  });
+
+  const cargar = useCallback(async () => {
+    if (!autorizado || !clienteId) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+      setDetalle(await facturasService.obtenerCuentaCorriente(clienteId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo cargar la cuenta corriente.');
+    } finally {
+      setLoading(false);
+    }
+  }, [autorizado, clienteId]);
+
+  const movimientosFiltrados = useMemo(() => {
+    const movimientos = detalle?.movimientos || [];
+    return movimientos.filter((movimiento: MovimientoCuentaCorriente) => {
+      const fecha = movimiento.fecha?.slice(0, 10);
+      const matchTipo = !tipoFiltro || movimiento.tipo === tipoFiltro;
+      const matchDesde = !desde || fecha >= desde;
+      const matchHasta = !hasta || fecha <= hasta;
+      return matchTipo && matchDesde && matchHasta;
+    });
+  }, [desde, detalle?.movimientos, hasta, tipoFiltro]);
+
+  const registrarPago = useCallback(async () => {
+    const importe = Number(pago.importe || 0);
+    if (!importe || importe <= 0) {
+      setError('El importe del pago debe ser mayor a cero.');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError(null);
+      const actualizado = await facturasService.registrarPagoCuentaCorriente({
+        clienteId,
+        importe,
+        medioPago: pago.medioPago,
+        referencia: pago.referencia,
+        observaciones: pago.observaciones,
+        fechaPago: pago.fechaPago || undefined,
+        idempotencyKey: createIdempotencyKey(),
+      });
+      setDetalle(actualizado);
+      setPago({ importe: '', medioPago: 'efectivo', referencia: '', observaciones: '', fechaPago: '' });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo registrar el pago.');
+    } finally {
+      setSaving(false);
+    }
+  }, [clienteId, pago]);
+
+  const registrarAjuste = useCallback(async () => {
+    const importe = Number(ajuste.importe || 0);
+    if (!importe || importe <= 0 || !ajuste.motivo.trim()) {
+      setError('El ajuste necesita importe mayor a cero y motivo.');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError(null);
+      await facturasService.registrarAjusteCuentaCorriente({
+        clienteId,
+        tipo: ajuste.tipo,
+        importe,
+        motivo: ajuste.motivo,
+        idempotencyKey: createIdempotencyKey(),
+      });
+      setAjuste({ tipo: 'DEBIT', importe: '', motivo: '' });
+      await cargar();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo registrar el ajuste.');
+    } finally {
+      setSaving(false);
+    }
+  }, [ajuste, cargar, clienteId]);
+
+  const exportar = useCallback(async () => {
+    try {
+      setExportando(true);
+      const archivo = await facturasService.exportarCuentaCorriente(clienteId);
+      descargarBlob(archivo.blob, archivo.filename);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo exportar la cuenta corriente.');
+    } finally {
+      setExportando(false);
+    }
+  }, [clienteId]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void cargar();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [cargar]);
+
+  if (!autorizado) {
+    return (
+      <div className="min-h-screen bg-black text-white p-6">
+        <h1 className="text-2xl font-black tracking-widest uppercase">Acceso restringido</h1>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-black text-white p-4 sm:p-6 space-y-6">
+      <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <Link href="/dashboard/facturas/cuentas-corrientes" className="text-sm text-[#676B67] hover:text-white">Cuentas corrientes</Link>
+          <h1 className="font-display text-2xl sm:text-3xl font-black tracking-[0.18em] uppercase">
+            {detalle?.cliente.nombre || 'Cuenta corriente'}
+          </h1>
+          <p className="text-sm text-[#676B67] mt-1">{detalle?.cliente.documento || 'Sin documento'}</p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={() => void exportar()} disabled={exportando || !detalle} className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50">
+            <Download size={16} />
+            Exportar movimientos
+          </button>
+          <button type="button" onClick={() => void cargar()} disabled={loading} className="inline-flex items-center gap-2 rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-4 py-3 text-sm font-bold text-[#BCB9B9] hover:bg-[#151515] disabled:opacity-50">
+            <RefreshCcw size={16} />
+            Actualizar
+          </button>
+        </div>
+      </header>
+
+      {error && (
+        <section className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+          {error}
+        </section>
+      )}
+
+      <section className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="rounded-2xl border border-[#1a1a1a] bg-[#080808] p-5">
+          <p className="text-sm text-[#676B67]">Saldo</p>
+          <p className={detalle && detalle.saldo < 0 ? 'mt-2 font-mono text-2xl font-black text-emerald-300' : 'mt-2 font-mono text-2xl font-black'}>
+            {formatearARS(detalle?.saldo || 0)}
+          </p>
+        </div>
+        <div className="rounded-2xl border border-[#1a1a1a] bg-[#080808] p-5">
+          <p className="text-sm text-[#676B67]">Debitos</p>
+          <p className="mt-2 font-mono text-2xl font-black">{formatearARS(detalle?.totalDebitado || 0)}</p>
+        </div>
+        <div className="rounded-2xl border border-[#1a1a1a] bg-[#080808] p-5">
+          <p className="text-sm text-[#676B67]">Creditos</p>
+          <p className="mt-2 font-mono text-2xl font-black">{formatearARS(detalle?.totalAcreditado || 0)}</p>
+        </div>
+        <div className="rounded-2xl border border-[#1a1a1a] bg-[#080808] p-5">
+          <p className="text-sm text-[#676B67]">Facturas pendientes</p>
+          <p className="mt-2 font-mono text-2xl font-black">{detalle?.facturasPendientes.length || 0}</p>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="rounded-2xl border border-[#1a1a1a] bg-[#080808] p-5 space-y-3">
+          <h2 className="font-black tracking-widest uppercase text-sm">Registrar pago</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <input type="number" placeholder="Importe" value={pago.importe} onChange={(event) => setPago((current) => ({ ...current, importe: event.target.value }))} className="rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm text-white" />
+            <input type="date" value={pago.fechaPago} onChange={(event) => setPago((current) => ({ ...current, fechaPago: event.target.value }))} className="rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm text-white" />
+            <input placeholder="Medio de pago" value={pago.medioPago} onChange={(event) => setPago((current) => ({ ...current, medioPago: event.target.value }))} className="rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm text-white" />
+            <input placeholder="Referencia" value={pago.referencia} onChange={(event) => setPago((current) => ({ ...current, referencia: event.target.value }))} className="rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm text-white" />
+            <input placeholder="Observaciones" value={pago.observaciones} onChange={(event) => setPago((current) => ({ ...current, observaciones: event.target.value }))} className="sm:col-span-2 rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm text-white" />
+          </div>
+          <button type="button" onClick={() => void registrarPago()} disabled={saving} className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-black text-black disabled:opacity-40">
+            <Save size={16} />
+            Registrar pago
+          </button>
+        </div>
+
+        <div className="rounded-2xl border border-[#1a1a1a] bg-[#080808] p-5 space-y-3">
+          <h2 className="font-black tracking-widest uppercase text-sm">Ajuste manual</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <select value={ajuste.tipo} onChange={(event) => setAjuste((current) => ({ ...current, tipo: event.target.value as 'DEBIT' | 'CREDIT' }))} className="rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm text-white">
+              <option value="DEBIT">Debito</option>
+              <option value="CREDIT">Credito</option>
+            </select>
+            <input type="number" placeholder="Importe" value={ajuste.importe} onChange={(event) => setAjuste((current) => ({ ...current, importe: event.target.value }))} className="rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm text-white" />
+            <input placeholder="Motivo obligatorio" value={ajuste.motivo} onChange={(event) => setAjuste((current) => ({ ...current, motivo: event.target.value }))} className="sm:col-span-2 rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm text-white" />
+          </div>
+          <button type="button" onClick={() => void registrarAjuste()} disabled={saving} className="inline-flex items-center gap-2 rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] px-4 py-3 text-sm font-black text-white disabled:opacity-40">
+            <Save size={16} />
+            Registrar ajuste
+          </button>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-[#1a1a1a] bg-[#080808] p-5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
+          <h2 className="font-black tracking-widest uppercase text-sm">Movimientos</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <input type="date" value={desde} onChange={(event) => setDesde(event.target.value)} className="rounded-xl border border-[#2a2a2a] bg-black px-3 py-2 text-sm text-white" />
+            <input type="date" value={hasta} onChange={(event) => setHasta(event.target.value)} className="rounded-xl border border-[#2a2a2a] bg-black px-3 py-2 text-sm text-white" />
+            <select value={tipoFiltro} onChange={(event) => setTipoFiltro(event.target.value)} className="rounded-xl border border-[#2a2a2a] bg-black px-3 py-2 text-sm text-white">
+              <option value="">Todos</option>
+              <option value="DEBIT">Debitos</option>
+              <option value="CREDIT">Creditos</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[860px] text-sm">
+            <thead>
+              <tr className="border-b border-[#1a1a1a] text-left text-[#676B67]">
+                <th className="py-3">Fecha</th>
+                <th className="py-3">Tipo</th>
+                <th className="py-3">Origen</th>
+                <th className="py-3">Descripcion</th>
+                <th className="py-3">Debito</th>
+                <th className="py-3">Credito</th>
+                <th className="py-3">Usuario</th>
+              </tr>
+            </thead>
+            <tbody>
+              {movimientosFiltrados.map((movimiento) => (
+                <tr key={movimiento.id} className="border-b border-[#111]">
+                  <td className="py-3">{movimiento.fecha?.slice(0, 10)}</td>
+                  <td className="py-3">{movimiento.tipo}</td>
+                  <td className="py-3">{movimiento.origen}</td>
+                  <td className="py-3">{movimiento.descripcion}</td>
+                  <td className="py-3 font-mono">{movimiento.tipo === 'DEBIT' ? formatearARS(movimiento.importe) : '-'}</td>
+                  <td className="py-3 font-mono">{movimiento.tipo === 'CREDIT' ? formatearARS(movimiento.importe) : '-'}</td>
+                  <td className="py-3">{movimiento.creadoPor || '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+}
+```
+
+## Archivo: noctua/components/facturas/EstadoArca.tsx
+
+```tsx
+'use client';
+
+import { memo } from 'react';
+import { AlertTriangle, CheckCircle } from 'lucide-react';
+import { cn } from '@/hooks/lib/utils';
+
+export type ArcaEstado = {
+  ok: boolean;
+  mensaje: string;
+  modo?: string;
+  cuit?: string;
+  puntoVenta?: number;
+} | null;
+
+interface EstadoArcaProps {
+  arca: ArcaEstado;
+}
+
+function EstadoArcaBase({ arca }: EstadoArcaProps) {
+  return (
+    <section
+      className={cn(
+        'rounded-2xl border p-4 flex items-start gap-3',
+        arca?.ok
+          ? 'border-green-500/30 bg-green-500/10'
+          : arca
+            ? 'border-red-500/30 bg-red-500/10'
+            : 'border-[#1a1a1a] bg-[#080808]'
+      )}
+    >
+      {arca?.ok ? (
+        <CheckCircle className="text-green-400 mt-0.5" size={20} />
+      ) : (
+        <AlertTriangle className={arca ? 'text-red-400 mt-0.5' : 'text-yellow-400 mt-0.5'} size={20} />
+      )}
+      <div>
+        <h2 className="text-sm font-black uppercase tracking-widest">Estado ARCA</h2>
+        <p className="text-sm text-[#BCB9B9] mt-1">
+          {arca ? arca.mensaje : 'TodavÃ­a no se verificÃ³ ARCA.'}
+        </p>
+        {arca?.ok && (
+          <p className="text-xs text-[#676B67] mt-2">
+            Modo: {arca.modo} | CUIT: {arca.cuit} | Punto de venta: {arca.puntoVenta}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export const EstadoArca = memo(EstadoArcaBase);
+```
+
+## Archivo: noctua/components/facturas/FormularioCobro.tsx
+
+```tsx
+'use client';
+
+import { memo } from 'react';
+import type { ClienteFacturaInput, MetodoPagoFactura, Pago, PedidoListoFactura, TipoComprobante } from '@/services/facturasService';
+import {
+  BILLETERAS,
+  MARCAS_TARJETA,
+  METODOS_PAGO,
+  TIPOS_COMPROBANTE,
+} from './facturasConstants';
+
+interface FormularioCobroProps {
+  pedidoSeleccionado: PedidoListoFactura | null;
+  metodoPago: MetodoPagoFactura;
+  tipoComprobante: TipoComprobante;
+  marcaTarjeta: string;
+  bancoTarjeta: string;
+  proveedorBilletera: string;
+  referenciaPago: string;
+  recibidoPor: string;
+  montoRecibido: number;
+  vuelto: number;
+  clienteCuenta: ClienteFacturaInput;
+  pagoPendiente: Pago | null;
+  cobrando: boolean;
+  onMetodoPagoChange: (value: MetodoPagoFactura) => void;
+  onTipoComprobanteChange: (value: TipoComprobante) => void;
+  onMarcaTarjetaChange: (value: string) => void;
+  onBancoTarjetaChange: (value: string) => void;
+  onProveedorBilleteraChange: (value: string) => void;
+  onReferenciaPagoChange: (value: string) => void;
+  onRecibidoPorChange: (value: string) => void;
+  onMontoRecibidoChange: (value: number) => void;
+  onClienteCuentaChange: (value: ClienteFacturaInput) => void;
+  onCobrar: () => void;
+  onConfirmarEfectivo: () => void;
+}
+
+function FormularioCobroBase({
+  pedidoSeleccionado,
+  metodoPago,
+  tipoComprobante,
+  marcaTarjeta,
+  bancoTarjeta,
+  proveedorBilletera,
+  referenciaPago,
+  recibidoPor,
+  montoRecibido,
+  vuelto,
+  clienteCuenta,
+  pagoPendiente,
+  cobrando,
+  onMetodoPagoChange,
+  onTipoComprobanteChange,
+  onMarcaTarjetaChange,
+  onBancoTarjetaChange,
+  onProveedorBilleteraChange,
+  onReferenciaPagoChange,
+  onRecibidoPorChange,
+  onMontoRecibidoChange,
+  onClienteCuentaChange,
+  onCobrar,
+  onConfirmarEfectivo,
+}: FormularioCobroProps) {
+  const updateCliente = (field: keyof ClienteFacturaInput, value: string) => {
+    onClienteCuentaChange({ ...clienteCuenta, [field]: value });
+  };
+
+  return (
+    <section className="rounded-2xl border border-[#1a1a1a] bg-[#080808] p-5">
+      <h2 className="font-black tracking-widest uppercase text-sm mb-4">Datos de cobro</h2>
+
+      <div className="space-y-4">
+        <label className="block">
+          <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Tipo de factura</span>
+          <select
+            value={tipoComprobante}
+            onChange={(event) => onTipoComprobanteChange(Number(event.target.value) as TipoComprobante)}
+            className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40"
+          >
+            {TIPOS_COMPROBANTE.map((tipo) => (
+              <option key={tipo.codigo} value={tipo.codigo}>{tipo.nombre}</option>
+            ))}
+          </select>
+        </label>
+
+        <div>
+          <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Metodo de pago</span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+            {METODOS_PAGO.map((metodo) => {
+              const Icon = metodo.icon;
+              const activo = metodoPago === metodo.value;
+
+              return (
+                <button
+                  key={metodo.value}
+                  type="button"
+                  onClick={() => onMetodoPagoChange(metodo.value)}
+                  className={activo ? 'flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-bold transition border-white bg-white text-black' : 'flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-bold transition border-[#2a2a2a] bg-black text-[#BCB9B9] hover:border-white/40'}
+                >
+                  <Icon size={16} />
+                  {metodo.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {metodoPago === 'cuenta_corriente' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border border-[#1f2937] bg-[#0d0d0d] p-4">
+            <label className="sm:col-span-2">
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Cliente</span>
+              <input
+                value={clienteCuenta.nombre || ''}
+                onChange={(event) => updateCliente('nombre', event.target.value)}
+                className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40"
+              />
+            </label>
+            <label>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">CUIT / documento</span>
+              <input
+                value={clienteCuenta.documento || ''}
+                onChange={(event) => updateCliente('documento', event.target.value)}
+                className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40"
+              />
+            </label>
+            <label>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Condicion fiscal</span>
+              <input
+                value={clienteCuenta.condicionFiscal || ''}
+                onChange={(event) => updateCliente('condicionFiscal', event.target.value)}
+                className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40"
+              />
+            </label>
+            <label>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Email</span>
+              <input
+                value={clienteCuenta.email || ''}
+                onChange={(event) => updateCliente('email', event.target.value)}
+                className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40"
+              />
+            </label>
+            <label>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Telefono</span>
+              <input
+                value={clienteCuenta.telefono || ''}
+                onChange={(event) => updateCliente('telefono', event.target.value)}
+                className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40"
+              />
+            </label>
+          </div>
+        )}
+
+        {metodoPago === 'efectivo' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Monto recibido</span>
+              <input
+                type="number"
+                value={montoRecibido}
+                onChange={(event) => onMontoRecibidoChange(Number(event.target.value))}
+                className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40"
+              />
+            </label>
+            <label>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Vuelto</span>
+              <input type="number" value={vuelto} readOnly className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-[#111] px-4 py-3 text-sm font-bold text-[#BCB9B9]" />
+            </label>
+          </div>
+        )}
+
+        {metodoPago === 'billetera_virtual' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Billetera</span>
+              <select value={proveedorBilletera} onChange={(event) => onProveedorBilleteraChange(event.target.value)} className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40">
+                {BILLETERAS.map((billetera) => <option key={billetera} value={billetera}>{billetera}</option>)}
+              </select>
+            </label>
+            <label>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Referencia</span>
+              <input value={referenciaPago} onChange={(event) => onReferenciaPagoChange(event.target.value)} className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40" />
+            </label>
+          </div>
+        )}
+
+        {(metodoPago === 'debito' || metodoPago === 'credito') && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Marca</span>
+              <select value={marcaTarjeta} onChange={(event) => onMarcaTarjetaChange(event.target.value)} className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40">
+                {MARCAS_TARJETA.map((marca) => <option key={marca} value={marca}>{marca}</option>)}
+              </select>
+            </label>
+            <label>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Banco</span>
+              <input value={bancoTarjeta} onChange={(event) => onBancoTarjetaChange(event.target.value)} className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40" />
+            </label>
+            <label className="sm:col-span-2">
+              <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Referencia / cupon</span>
+              <input value={referenciaPago} onChange={(event) => onReferenciaPagoChange(event.target.value)} className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40" />
+            </label>
+          </div>
+        )}
+
+        <label>
+          <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Recibido por</span>
+          <input value={recibidoPor} onChange={(event) => onRecibidoPorChange(event.target.value)} className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40" />
+        </label>
+
+        <div className="flex flex-col gap-3 pt-2">
+          <button type="button" onClick={onCobrar} disabled={!pedidoSeleccionado || cobrando} className="rounded-xl bg-white px-4 py-4 text-sm font-black text-black hover:bg-[#BCB9B9] disabled:opacity-40">
+            {cobrando ? 'Procesando...' : metodoPago === 'cuenta_corriente' ? 'Facturar a cuenta corriente' : 'Verificar ARCA, facturar y cerrar mesa'}
+          </button>
+
+          {pagoPendiente && (
+            <button type="button" onClick={onConfirmarEfectivo} disabled={cobrando} className="rounded-xl border border-yellow-500/40 bg-yellow-500/10 px-4 py-4 text-sm font-black text-yellow-300 hover:bg-yellow-500/20 disabled:opacity-40">
+              Confirmar efectivo y cerrar mesa
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export const FormularioCobro = memo(FormularioCobroBase);
+```
+
+## Archivo: noctua/components/facturas/PedidoSelector.tsx
+
+```tsx
+'use client';
+
+import { memo } from 'react';
+import { Receipt } from 'lucide-react';
+import type { PedidoFacturaItem, PedidoListoFactura } from '@/services/facturasService';
+import { formatearARS } from './facturasConstants';
+
+interface PedidoSelectorProps {
+  pedidos: PedidoListoFactura[];
+  pedidoSeleccionado: PedidoListoFactura | null;
+  pedidoSeleccionadoId: string;
+  onSeleccionarPedido: (pedidoId: string) => void;
+}
+
+function PedidoSelectorBase({
+  pedidos,
+  pedidoSeleccionado,
+  pedidoSeleccionadoId,
+  onSeleccionarPedido,
+}: PedidoSelectorProps) {
+  return (
+    <section className="rounded-2xl border border-[#1a1a1a] bg-[#080808] p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Receipt size={18} className="text-[#676B67]" />
+        <h2 className="font-black tracking-widest uppercase text-sm">Seleccionar pedido</h2>
+      </div>
+
+      {pedidos.length === 0 ? (
+        <div className="rounded-xl border border-[#1a1a1a] bg-black/40 p-6 text-center">
+          <p className="text-[#676B67] font-semibold">No hay pedidos listos para cobrar.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <select
+            value={pedidoSeleccionadoId}
+            onChange={(event) => onSeleccionarPedido(event.target.value)}
+            className="w-full rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-white/40"
+          >
+            <option value="">Seleccionar pedido...</option>
+            {pedidos.map((pedido) => (
+              <option key={pedido.id} value={pedido.id}>
+                Mesa {pedido.mesa?.numero || '-'} | {formatearARS(pedido.total)} | {pedido.estado}
+              </option>
+            ))}
+          </select>
+
+          {pedidoSeleccionado && (
+            <div className="rounded-2xl border border-[#1a1a1a] bg-black/50 p-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="text-xl font-black">Mesa {pedidoSeleccionado.mesa?.numero || '-'}</h3>
+                  <p className="text-xs text-[#676B67] uppercase tracking-widest">
+                    {pedidoSeleccionado.mesa?.zona || 'Sin zona'} | {pedidoSeleccionado.estado}
+                  </p>
+                </div>
+                <p className="text-2xl font-black font-mono">{formatearARS(pedidoSeleccionado.total)}</p>
+              </div>
+
+              <div className="space-y-2">
+                {pedidoSeleccionado.items.map((item: PedidoFacturaItem) => (
+                  <div key={item.id} className="flex items-center justify-between gap-4 border-b border-[#111] pb-2">
+                    <div>
+                      <p className="text-sm font-bold">{item.cantidad} x {item.producto?.nombre || 'Producto'}</p>
+                      {item.notas && <p className="text-xs text-yellow-400">{item.notas}</p>}
+                    </div>
+                    <p className="text-sm font-mono text-[#BCB9B9]">{formatearARS(item.subtotal)}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+export const PedidoSelector = memo(PedidoSelectorBase);
+```
+
+## Archivo: noctua/components/facturas/TablaFacturas.tsx
+
+```tsx
+'use client';
+
+import { memo } from 'react';
+import { Download } from 'lucide-react';
+import type { Factura, FacturasFiltros } from '@/services/facturasService';
+import { formatearARS, METODOS_PAGO, TIPOS_COMPROBANTE } from './facturasConstants';
+
+interface TablaFacturasProps {
+  facturas: Factura[];
+  filtros: FacturasFiltros;
+  exportando: boolean;
+  onFiltroChange: (filtros: FacturasFiltros) => void;
+  onExportar: () => void;
+}
+
+function TablaFacturasBase({ facturas, filtros, exportando, onFiltroChange, onExportar }: TablaFacturasProps) {
+  const setFiltro = (key: keyof FacturasFiltros, value: string) => {
+    onFiltroChange({ ...filtros, [key]: value });
+  };
+
+  return (
+    <section className="rounded-2xl border border-[#1a1a1a] bg-[#080808] p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-4">
+        <h2 className="font-black tracking-widest uppercase text-sm">Ultimas facturas</h2>
+        <button
+          type="button"
+          onClick={onExportar}
+          disabled={exportando}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+        >
+          <Download size={16} />
+          {exportando ? 'Exportando...' : 'Exportar a Excel'}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-3 mb-5">
+        <label>
+          <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Desde</span>
+          <input type="date" value={filtros.desde || ''} onChange={(event) => setFiltro('desde', event.target.value)} className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-3 py-2 text-sm text-white" />
+        </label>
+        <label>
+          <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Hasta</span>
+          <input type="date" value={filtros.hasta || ''} onChange={(event) => setFiltro('hasta', event.target.value)} className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-3 py-2 text-sm text-white" />
+        </label>
+        <label>
+          <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Cliente</span>
+          <input value={filtros.cliente || ''} onChange={(event) => setFiltro('cliente', event.target.value)} className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-3 py-2 text-sm text-white" />
+        </label>
+        <label>
+          <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Estado</span>
+          <select value={filtros.estado || ''} onChange={(event) => setFiltro('estado', event.target.value)} className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-3 py-2 text-sm text-white">
+            <option value="">Todos</option>
+            <option value="emitida">Emitida</option>
+            <option value="pendiente">Pendiente</option>
+            <option value="pagada">Pagada</option>
+            <option value="anulada">Anulada</option>
+          </select>
+        </label>
+        <label>
+          <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Tipo</span>
+          <select value={filtros.tipoComprobante || ''} onChange={(event) => setFiltro('tipoComprobante', event.target.value)} className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-3 py-2 text-sm text-white">
+            <option value="">Todos</option>
+            {TIPOS_COMPROBANTE.map((tipo) => <option key={tipo.codigo} value={tipo.codigo}>{tipo.nombre}</option>)}
+          </select>
+        </label>
+        <label>
+          <span className="text-xs font-bold uppercase tracking-widest text-[#676B67]">Pago</span>
+          <select value={filtros.metodoPago || ''} onChange={(event) => setFiltro('metodoPago', event.target.value)} className="mt-2 w-full rounded-xl border border-[#2a2a2a] bg-black px-3 py-2 text-sm text-white">
+            <option value="">Todos</option>
+            {METODOS_PAGO.map((metodo) => <option key={metodo.value} value={metodo.value}>{metodo.label}</option>)}
+          </select>
+        </label>
+      </div>
+
+      {facturas.length === 0 ? (
+        <p className="text-sm text-[#676B67]">Todavia no hay facturas para los filtros seleccionados.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[920px] text-sm">
+            <thead>
+              <tr className="border-b border-[#1a1a1a] text-left text-[#676B67]">
+                <th className="py-3">Comprobante</th>
+                <th className="py-3">Tipo</th>
+                <th className="py-3">Cliente</th>
+                <th className="py-3">Metodo</th>
+                <th className="py-3">Total</th>
+                <th className="py-3">Saldo</th>
+                <th className="py-3">CAE</th>
+                <th className="py-3">Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {facturas.map((factura) => (
+                <tr key={factura.id} className="border-b border-[#111]">
+                  <td className="py-3 font-mono">{factura.numeroComprobante}</td>
+                  <td className="py-3">{TIPOS_COMPROBANTE.find((tipo) => tipo.codigo === factura.tipoComprobante)?.nombre}</td>
+                  <td className="py-3">{factura.cliente?.nombre || '-'}</td>
+                  <td className="py-3 capitalize">{factura.metodoPago?.replace('_', ' ')}</td>
+                  <td className="py-3 font-mono">{formatearARS(factura.total)}</td>
+                  <td className="py-3 font-mono">{formatearARS(factura.saldoPendiente || 0)}</td>
+                  <td className="py-3 font-mono text-xs text-[#BCB9B9]">{factura.cae || '-'}</td>
+                  <td className="py-3">
+                    <span className="rounded-full border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-bold text-green-300">
+                      {factura.estado}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export const TablaFacturas = memo(TablaFacturasBase);
+```
+
+## Archivo: noctua/components/facturas/facturasConstants.ts
+
+```ts
+import { Banknote, CreditCard, HandCoins, Wallet } from 'lucide-react';
+import type { MetodoPagoFactura, TipoComprobante } from '@/services/facturasService';
+
+export const TIPOS_COMPROBANTE: {
+  codigo: TipoComprobante;
+  nombre: string;
+}[] = [
+  { codigo: 1, nombre: 'Factura A' },
+  { codigo: 6, nombre: 'Factura B' },
+  { codigo: 11, nombre: 'Factura C' },
+];
+
+export const METODOS_PAGO: {
+  value: MetodoPagoFactura;
+  label: string;
+  icon: typeof Banknote;
+}[] = [
+  { value: 'efectivo', label: 'Efectivo', icon: Banknote },
+  { value: 'billetera_virtual', label: 'Billetera virtual', icon: Wallet },
+  { value: 'debito', label: 'Tarjeta debito', icon: CreditCard },
+  { value: 'credito', label: 'Tarjeta credito', icon: CreditCard },
+  { value: 'cuenta_corriente', label: 'Cuenta corriente', icon: HandCoins },
+];
+
+export const BILLETERAS = [
+  'Mercado Pago',
+  'Uala',
+  'Cuenta DNI',
+  'Naranja X',
+  'Modo',
+  'Otra',
+];
+
+export const MARCAS_TARJETA = [
+  'Visa',
+  'Mastercard',
+  'American Express',
+  'Maestro',
+  'Cabal',
+  'Otra',
+];
+
+export function formatearARS(valor: number) {
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+  }).format(Number(valor || 0));
+}
+```
+
 ## Archivo: backend-reservas/sql/facturacion-cuenta-corriente.sql
 
 ```sql
@@ -2504,3 +3941,4 @@ Funciones incompletas o pendientes:
 - No se confirmo integracion ARCA productiva; el servicio actual simula CAE.
 - No se confirmo si las claves versionadas en scripts de prueba siguen activas.
 - No se encontro flujo completo de recibos ni notas de credito.
+

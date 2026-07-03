@@ -1,4 +1,4 @@
-# Informe de arquitectura NOCTUA
+﻿# Informe de arquitectura NOCTUA
 
 Fecha de analisis: 2026-07-02
 
@@ -6,7 +6,7 @@ Alcance: analisis estatico del repositorio local. No se ejecutaron migraciones, 
 
 ## 1. Resumen general
 
-NOCTUA es un proyecto con frontend Next.js y backend Express para gestion de restaurante: mesas, pedidos, cocina, stock, reservas, facturacion, cuentas corrientes, usuarios, soporte, delivery y panel superadmin.
+NOCTUA es un proyecto con frontend Next.js y backend Express para gestion de restaurante: mesas, pedidos, cocina, stock, platos, promociones, reservas, facturacion, cuentas corrientes, usuarios, soporte, delivery y panel superadmin.
 
 Tecnologias principales:
 
@@ -190,6 +190,8 @@ Tabla de pantallas:
 | `/dashboard/facturas/cuentas-corrientes/[clienteId]` | `app/dashboard/facturas/cuentas-corrientes/[clienteId]/page.tsx` | detalle, pagos, ajustes, export | `facturasService` | `authStore` |
 | `/dashboard/historial` | `app/dashboard/historial/page.tsx` | historial pedidos | local/mock | local state |
 | `/dashboard/stock` | `app/dashboard/stock/page.tsx` | stock components | `stockService`, `productosApi` | `stockStore` |
+| `/dashboard/platos` | `app/dashboard/platos/page.tsx` | `DishAdminCard`, `DishFormPanel`, `DishSuggesterModal`, `ConfirmDeleteModal` | `dishesService` / mock data | `dishesStore`, `stockStore` |
+| `/dashboard/promociones` | `app/dashboard/promociones/page.tsx` | `PromotionCard`, `PromotionFormModal`, `DishSelector`, `ConfirmDeleteModal` | `promotionsService` / localStorage | `promotionsStore` |
 | `/dashboard/reservas` | `app/dashboard/reservas/page.tsx` | formulario/listado reservas | `reservasApi` | local state |
 | `/dashboard/administracion` | `app/dashboard/administracion/page.tsx` | usuarios table/modal | `usuariosService`, `authService` | local state |
 | `/dashboard/delivery` | `app/dashboard/delivery/page.tsx` | `PlatformCard` | `deliveryService` | `deliveryStore` |
@@ -197,7 +199,6 @@ Tabla de pantallas:
 | `/dashboard/soporte` | `app/dashboard/soporte/page.tsx` | tickets soporte | `soporteService`, API soporte | `authStore` |
 | `/superadm` | `app/superadm/page.tsx` | panel resumen | `superadmStore` | `superadmStore` |
 | `/superadm/mesas` | `app/superadm/mesas/page.tsx` | config mesas | `superadmStore` | `superadmStore` |
-| `/superadm/pedidos` | `app/superadm/pedidos/page.tsx` | config pedidos | `superadmStore` | `superadmStore` |
 | `/superadm/cocina` | `app/superadm/cocina/page.tsx` | config cocina | `superadmStore` | `superadmStore` |
 | `/superadm/stock` | `app/superadm/stock/page.tsx` | config stock | `stockStore`, `superadmStore` | stores |
 | `/superadm/delivery` | `app/superadm/delivery/page.tsx` | config delivery | `superadmStore` | `superadmStore` |
@@ -232,7 +233,7 @@ Otros roles:
 - `cajero`: facturas, historial, mesas, pedidos, soporte; autorizado para cuenta corriente/export.
 - `cocina`: cocina y soporte.
 - `mozo`: mesas, pedidos, cocina y soporte.
-- `stock`: stock y soporte.
+- `stock`: stock, platos, promociones y soporte.
 - `delivery`: delivery y soporte.
 
 ## 6. Base de datos
@@ -325,6 +326,7 @@ Scripts SQL:
 ### Menores
 
 - Archivo backup versionado: `noctua/components/mesas/MesaCard.bak.tsx`.
+- Modulos nuevos de platos/promociones guardan datos en Zustand/localStorage o mock data; no se confirmo persistencia Supabase para esos dominios.
 - APIs duplicadas o superpuestas: `noctua/hooks/lib/pedidosApi.ts` y `noctua/hooks/lib/api/pedidosApi.ts`.
 - Comentarios TODO indican servicios todavia mock o pendientes: mesas, pedidos, stock, delivery adapters.
 - `backend-reservas` declara `soap` sin uso directo.
@@ -338,39 +340,39 @@ Rama actual:
 cambios-moli
 ```
 
-`git status --short --branch` esperado tras crear estos documentos:
+`git status --short --branch` al actualizar esta documentacion:
 
 ```text
-## cambios-moli...origin/cambios-moli [ahead 2]
-?? CONTEXTO_FACTURACION_NOCTUA.md
-?? ESTRUCTURA_NOCTUA.txt
-?? INFORME_ARQUITECTURA_NOCTUA.md
+## cambios-moli...origin/cambios-moli [ahead 4]
+ M CONTEXTO_FACTURACION_NOCTUA.md
+ M ESTRUCTURA_NOCTUA.txt
+ M INFORME_ARQUITECTURA_NOCTUA.md
 ```
 
 Ultimos 10 commits:
 
 ```text
-140aa58 (HEAD -> cambios-moli) merge: integrar cambios de origin/cambios-moli
+e31409b (HEAD -> cambios-moli) merge: integrar cambios de origin/cambios-moli
+b4c016c (backup-antes-de-cambios-moli-20260702-2) backup: documentacion local antes de cambios-moli
+77ce43c (origin/cambios-moli) Seccion Platos y Promociones creadas. Seccion Pedidos avanzada
+140aa58 merge: integrar cambios de origin/cambios-moli
 f06c939 backup: estado antes de cambios-moli
-9106108 (origin/cambios-moli) stock-avanzado
+9106108 stock-avanzado
 56f332e mesas
 27e92b4 Sincronizar estado de mesa desde cocina + notificacion pedido listo
 b9cafaa mejora en facturas
 29778d9 Super-Admin Panel agregado
-07bef04 arreg.ar stock
-37af683 ARREGLAR TICKETS
-96e9026 Arreglar secciones
 ```
 
 Archivos modificados:
 
-- Ninguno esperado fuera de los tres documentos nuevos.
-
-Archivos sin seguimiento:
-
 - `CONTEXTO_FACTURACION_NOCTUA.md`
 - `ESTRUCTURA_NOCTUA.txt`
 - `INFORME_ARQUITECTURA_NOCTUA.md`
+
+Archivos sin seguimiento:
+
+- Ninguno confirmado al momento del relevamiento.
 
 ## 10. Informacion no confirmada
 

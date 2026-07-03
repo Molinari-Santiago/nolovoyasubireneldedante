@@ -1,5 +1,6 @@
-.
+﻿.
 |-- backend-reservas/
+|   |-- certificados/
 |   |-- prisma/
 |   |   |-- migrations/
 |   |   |   |-- 20260512120640_init/
@@ -13,6 +14,7 @@
 |   |   |   |-- 20260520184421_agregar_stock_producto/
 |   |   |   |   \-- migration.sql
 |   |   |   \-- migration_lock.toml
+|   |   |-- prisma/
 |   |   |-- schema.prisma
 |   |   \-- seed.js
 |   |-- sql/
@@ -94,6 +96,10 @@
 |   |   |   |   \-- page.tsx
 |   |   |   |-- pedido/
 |   |   |   |   \-- page.tsx
+|   |   |   |-- platos/
+|   |   |   |   \-- page.tsx
+|   |   |   |-- promociones/
+|   |   |   |   \-- page.tsx
 |   |   |   |-- reservas/
 |   |   |   |   \-- page.tsx
 |   |   |   |-- soporte/
@@ -119,13 +125,10 @@
 |   |   |   |   \-- page.tsx
 |   |   |   |-- mesas/
 |   |   |   |   \-- page.tsx
-|   |   |   |-- pedidos/
-|   |   |   |   \-- page.tsx
 |   |   |   |-- stock/
 |   |   |   |   \-- page.tsx
 |   |   |   |-- layout.tsx
 |   |   |   \-- page.tsx
-|   |   |-- favicon.ico
 |   |   |-- globals.css
 |   |   |-- layout.tsx
 |   |   |-- page.tsx
@@ -175,7 +178,16 @@
 |   |   |   \-- ZonaFloorSection.tsx
 |   |   |-- pedidos/
 |   |   |   |-- AvailabilityBadge.tsx
+|   |   |   |-- DishCustomizerPanel.tsx
 |   |   |   \-- RecipeIngredientSelector.tsx
+|   |   |-- platos/
+|   |   |   |-- DishAdminCard.tsx
+|   |   |   |-- DishFormPanel.tsx
+|   |   |   \-- DishSuggesterModal.tsx
+|   |   |-- promociones/
+|   |   |   |-- DishSelector.tsx
+|   |   |   |-- PromotionCard.tsx
+|   |   |   \-- PromotionFormModal.tsx
 |   |   |-- soporte/
 |   |   |   |-- NuevoTicketModal.tsx
 |   |   |   |-- TicketCard.tsx
@@ -242,6 +254,8 @@
 |   |   |-- useSoporte.ts
 |   |   \-- useStock.ts
 |   |-- lib/
+|   |   |-- customizationGenerator.ts
+|   |   |-- dishSuggester.ts
 |   |   |-- platformRegistry.ts
 |   |   \-- recipeCalculator.ts
 |   |-- public/
@@ -263,11 +277,13 @@
 |   |   |-- authService.ts
 |   |   |-- cocinaService.ts
 |   |   |-- deliveryService.ts
+|   |   |-- dishesService.ts
 |   |   |-- facturasService.ts
 |   |   |-- mesaMergeService.ts
 |   |   |-- mesasService.ts
 |   |   |-- pedidosService.ts
 |   |   |-- platformAdapter.interface.ts
+|   |   |-- promotionsService.ts
 |   |   |-- soporteService.ts
 |   |   |-- stockService.ts
 |   |   |-- superadmService.ts
@@ -275,19 +291,23 @@
 |   |-- store/
 |   |   |-- authStore.ts
 |   |   |-- deliveryStore.ts
+|   |   |-- dishesStore.ts
 |   |   |-- mesasStore.ts
 |   |   |-- notificationsStore.ts
 |   |   |-- pedidosStore.ts
+|   |   |-- promotionsStore.ts
 |   |   |-- stockStore.ts
 |   |   \-- superadmStore.ts
 |   |-- types/
 |   |   |-- analytics.ts
+|   |   |-- dishes.ts
 |   |   |-- index.ts
 |   |   |-- mesa.ts
 |   |   |-- orders.ts
 |   |   |-- pedido.ts
 |   |   |-- platforms.ts
 |   |   |-- producto.ts
+|   |   |-- promotions.ts
 |   |   |-- soporte.ts
 |   |   |-- stock.ts
 |   |   |-- superadm.ts
@@ -323,7 +343,10 @@
 |-- Proyecto-Restaurante/
 |   \-- README.md
 |-- .gitignore
+|-- CONTEXTO_FACTURACION_NOCTUA.md
+|-- ESTRUCTURA_NOCTUA.txt
+|-- INFORME_ARQUITECTURA_NOCTUA.md
 |-- package.json
 \-- package-lock.json
 
-Excluido intencionalmente: node_modules/, .next/, .git/, dist/, build/, certificados/, archivos .env, archivos de certificados, binarios, archivos Excel, bases de datos locales, caches y tsconfig.tsbuildinfo.
+Excluido intencionalmente: node_modules/, .next/, .git/, dist/, build/, carpetas de cache, certificados, archivos .env, imagenes/binarios grandes, archivos Excel, bases de datos locales y tsconfig.tsbuildinfo.
