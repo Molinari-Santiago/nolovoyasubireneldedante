@@ -181,6 +181,22 @@ async function obtenerFacturaPorMovimiento(movimiento) {
   return data;
 }
 
+async function obtenerFacturaPorPedido(pedidoId) {
+  const { data, error } = await supabaseAdmin
+    .from("facturas")
+    .select("*, pagos(*)")
+    .eq("pedido_id", pedidoId)
+    .order("creado_en", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data;
+}
+
 async function emitirComprobante({ pedido, pago, tipoComprobante }) {
   const importes = calcularImpuestos(pedido.total);
   const respuesta = await solicitarCAE({
@@ -255,35 +271,52 @@ async function crearFacturaDesdePago({
 }
 
 async function cerrarPedidoYLiberarMesa(pedido) {
-  const { error: pedidoError } = await supabaseAdmin
+  const { data: pedidoCerrado, error: pedidoError } = await supabaseAdmin
     .from("pedidos")
     .update({ estado: "cerrada" })
-    .eq("id", pedido.id);
+    .eq("id", pedido.id)
+    .select("id, estado, mesa_id")
+    .maybeSingle();
 
-  if (pedidoError) throw new Error(pedidoError.message);
+  if (pedidoError) {
+    throw new Error(`No se pudo cerrar el pedido: ${pedidoError.message}`);
+  }
+
+  if (!pedidoCerrado || pedidoCerrado.estado !== "cerrada") {
+    throw new Error("El pedido no quedó cerrado correctamente");
+  }
+
+  let mesaLiberada = true;
 
   if (pedido.mesa_id) {
-    const { error: mesaError } = await supabaseAdmin
+    const { data: mesa, error: mesaError } = await supabaseAdmin
       .from("mesas")
-      .update({ estado: "libre", disponible: true })
-      .eq("id", pedido.mesa_id);
+      .update({
+        estado: "libre",
+        disponible: true,
+      })
+      .eq("id", pedido.mesa_id)
+      .select("id, estado, disponible")
+      .maybeSingle();
 
-    if (mesaError) throw new Error(mesaError.message);
-  }
-}
+    if (mesaError) {
+      throw new Error(`No se pudo liberar la mesa: ${mesaError.message}`);
+    }
 
-async function cerrarPedidoYLiberarMesaSeguro(pedido) {
-  try {
-    await cerrarPedidoYLiberarMesa(pedido);
-    return null;
-  } catch (error) {
-    console.error("Factura emitida, pero fallo el cierre del pedido/mesa:", {
-      pedidoId: pedido?.id,
-      mesaId: pedido?.mesa_id,
-      error: error.message,
-    });
-    return error.message;
+    mesaLiberada =
+      Boolean(mesa) &&
+      mesa.estado === "libre" &&
+      mesa.disponible === true;
+
+    if (!mesaLiberada) {
+      throw new Error("La mesa no quedó libre correctamente");
+    }
   }
+
+  return {
+    pedidoCerrado: true,
+    mesaLiberada,
+  };
 }
 
 export const verificarARCAController = async (req, res) => {
@@ -306,7 +339,7 @@ export const verificarARCAController = async (req, res) => {
 
 export const obtenerPedidosListosParaCobrar = async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    const { data: candidatos, error: pedidosError } = await supabaseAdmin
       .from("pedidos")
       .select(`
         *,
@@ -320,9 +353,35 @@ export const obtenerPedidosListosParaCobrar = async (req, res) => {
       .order("created_at", { ascending: false })
       .limit(50);
 
-    if (error) throw new Error(error.message);
+    if (pedidosError) {
+      throw new Error(pedidosError.message);
+    }
 
-    const pedidos = (data || []).map(mapPedido);
+    const pedidosCandidatos = candidatos || [];
+    const pedidoIds = pedidosCandidatos.map((pedido) => pedido.id);
+
+    let pedidosFacturados = new Set();
+
+    if (pedidoIds.length > 0) {
+      const { data: facturas, error: facturasError } = await supabaseAdmin
+        .from("facturas")
+        .select("pedido_id")
+        .in("pedido_id", pedidoIds);
+
+      if (facturasError) {
+        throw new Error(facturasError.message);
+      }
+
+      pedidosFacturados = new Set(
+        (facturas || [])
+          .map((factura) => factura.pedido_id)
+          .filter(Boolean)
+      );
+    }
+
+    const pedidos = pedidosCandidatos
+      .filter((pedido) => !pedidosFacturados.has(pedido.id))
+      .map(mapPedido);
 
     return res.json({
       mensaje: "Pedidos listos para cobrar obtenidos correctamente",
@@ -386,7 +445,21 @@ export const cobrarPedido = async (req, res) => {
 
     const pedidoRaw = await obtenerPedidoCompleto(pedidoId);
     const pedido = mapPedido(pedidoRaw);
+    const facturaExistente = await obtenerFacturaPorPedido(pedidoId);
 
+if (facturaExistente) {
+  const cierre = await cerrarPedidoYLiberarMesa(pedidoRaw);
+
+  return res.status(200).json({
+    mensaje: "El pedido ya estaba facturado y su cierre fue verificado",
+    factura: mapFactura(facturaExistente),
+    pago: mapPago(facturaExistente.pagos),
+    pedido,
+    requiereConfirmacion: false,
+    idempotente: true,
+    ...cierre,
+  });
+}
     if (!pedido.items.length) {
       return res.status(400).json({
         mensaje: "No se puede cobrar un pedido sin productos",
@@ -483,21 +556,18 @@ export const cobrarPedido = async (req, res) => {
       });
     }
 
-    const advertenciaCierre = await cerrarPedidoYLiberarMesaSeguro(pedidoRaw);
-
-    return res.status(201).json({
-      mensaje: advertenciaCierre
-        ? "Pedido cobrado y facturado. Revisar cierre de mesa."
-        : "Pedido cobrado, facturado y mesa cerrada",
-      arca,
-      pago: mapPago(pago),
-      factura: mapFactura(factura),
-      cliente: mapCliente(clienteCuenta),
-      movimiento: mapMovimientoCuentaCorriente(movimiento),
-      pedido,
-      advertencia: advertenciaCierre,
-      requiereConfirmacion: false,
-    });
+const cierre = await cerrarPedidoYLiberarMesa(pedidoRaw);
+  return res.status(201).json({
+  mensaje: "Pedido cobrado, facturado y mesa liberada",
+  arca,
+  pago: mapPago(pago),
+  factura: mapFactura(factura),
+  cliente: mapCliente(clienteCuenta),
+  movimiento: mapMovimientoCuentaCorriente(movimiento),
+  pedido,
+  requiereConfirmacion: false,
+  ...cierre,
+});
   } catch (error) {
     return res.status(500).json({
       mensaje: "Error al cobrar pedido",
@@ -530,6 +600,19 @@ export const confirmarPagoEfectivo = async (req, res) => {
       pago,
       tipoComprobante: pago.tipo_comprobante || 6,
     });
+    const facturaExistente = await obtenerFacturaPorPedido(pago.pedido_id);
+
+if (facturaExistente) {
+  const cierre = await cerrarPedidoYLiberarMesa(pedidoRaw);
+
+  return res.json({
+    mensaje: "El efectivo ya estaba confirmado y el cierre fue verificado",
+    pago: mapPago(pago),
+    factura: mapFactura(facturaExistente),
+    idempotente: true,
+    ...cierre,
+  });
+}
 
     const { data: pagoActualizado, error: updateError } = await supabaseAdmin
       .from("pagos")
@@ -552,17 +635,14 @@ export const confirmarPagoEfectivo = async (req, res) => {
       pago: pagoActualizado,
       arca,
     });
-    const advertenciaCierre = await cerrarPedidoYLiberarMesaSeguro(pedidoRaw);
-
-    return res.json({
-      mensaje: advertenciaCierre
-        ? "Efectivo confirmado y factura emitida. Revisar cierre de mesa."
-        : "Efectivo confirmado, factura emitida y mesa cerrada",
-      arca,
-      pago: mapPago(pagoActualizado),
-      factura: mapFactura(factura),
-      advertencia: advertenciaCierre,
-    });
+const cierre = await cerrarPedidoYLiberarMesa(pedidoRaw);
+   return res.json({
+  mensaje: "Efectivo confirmado, factura emitida y mesa liberada",
+  arca,
+  pago: mapPago(pagoActualizado),
+  factura: mapFactura(factura),
+  ...cierre,
+});
   } catch (error) {
     return res.status(500).json({
       mensaje: "Error al confirmar pago en efectivo",

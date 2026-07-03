@@ -189,6 +189,8 @@ function UsuarioModalBase({
             <option value="cocina">Cocinero</option>
             <option value="cajero">Cajero</option>
             <option value="admin">Administrador</option>
+            <option value="desarrollador">Desarrollador</option>
+
           </select>
         </div>
 

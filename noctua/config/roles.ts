@@ -19,7 +19,8 @@ export type RolSistema =
   | 'cocina'
   | 'mozo'
   | 'stock'
-  | 'delivery';
+  | 'delivery'
+  | 'desarrollador';
 
 export const SECCIONES_POR_ROL: Record<RolSistema, SeccionSistema[]> = {
   admin: [
@@ -37,11 +38,12 @@ export const SECCIONES_POR_ROL: Record<RolSistema, SeccionSistema[]> = {
     'delivery',
     'soporte',
   ],
-  cajero:   ['mesas', 'pedidos', 'cajero', 'historial', 'soporte'],
-  cocina:   ['cocina', 'soporte'],
-  mozo:     ['mesas', 'pedidos', 'cocina', 'soporte'],
-  stock:    ['stock', 'platos', 'promociones', 'soporte'],
-  delivery: ['delivery', 'soporte'],
+  cajero: ['mesas', 'pedidos', 'cajero', 'historial'],
+  cocina: ['cocina'],
+  mozo: ['mesas', 'pedidos', 'cocina'],
+  stock: ['stock', 'platos', 'promociones'],
+  delivery: ['delivery'],
+  desarrollador: ['soporte'],
 };
 
 export const RUTA_POR_SECCION: Record<SeccionSistema, string> = {
@@ -83,6 +85,7 @@ export const HOME_POR_ROL: Record<RolSistema, string> = {
   mozo: '/dashboard/mesas',
   stock: '/dashboard/stock',
   delivery: '/dashboard/delivery',
+  desarrollador: '/dashboard/soporte',
 };
 
 export function obtenerSeccionesPorRol(rol?: string | null): SeccionSistema[] {

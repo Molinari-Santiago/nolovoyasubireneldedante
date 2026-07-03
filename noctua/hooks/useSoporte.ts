@@ -1,18 +1,24 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
-import { useAuthStore } from '@/store/authStore';
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from 'react';
+
+import { toast } from '@/components/ui/Toast';
 import { supabase } from '@/hooks/lib/supabaseClient';
 import {
-  getMyTickets,
-  getAllTickets,
   createTicket,
+  getAllTickets,
+  getMyTickets,
 } from '@/services/soporteService';
-import { toast } from '@/components/ui/Toast';
+import { useAuthStore } from '@/store/authStore';
+
 import type {
-  TicketSoporte,
-  TicketEstado,
   CreateTicketPayload,
+  TicketEstado,
+  TicketSoporte,
 } from '@/types/soporte';
 
 interface UseSoporteReturn {
@@ -20,132 +26,553 @@ interface UseSoporteReturn {
   loading: boolean;
   error: string | null;
   submitting: boolean;
-  crearTicket: (payload: CreateTicketPayload) => Promise<boolean>;
-  actualizarEstado: (id: string, estado: TicketEstado, respuesta?: string) => Promise<void>;
+
+  crearTicket: (
+    payload: CreateTicketPayload
+  ) => Promise<boolean>;
+
+  actualizarEstado: (
+    id: string,
+    estado: TicketEstado,
+    respuesta?: string
+  ) => Promise<void>;
+
+  eliminarTicket: (
+    id: string
+  ) => Promise<boolean>;
+
   refetch: () => void;
 }
 
-export function useSoporte(): UseSoporteReturn {
-  const usuario = useAuthStore((s) => s.usuario);
-  const isAdmin = usuario?.rol === 'admin';
+type UsuarioActual = {
+  nombre: string;
+  rol: string;
+};
 
-  const [tickets, setTickets]     = useState<TicketSoporte[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+type IdentidadUsuario = {
+  dbUserId: string | null;
+  authUserId: string | null;
+  nombre: string;
+  rol: string;
+};
 
-  /** Carga tickets según el rol del usuario */
-  const fetchTickets = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = isAdmin ? await getAllTickets() : await getMyTickets();
-      setTickets(data);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Error al cargar tickets';
-      setError(msg);
-    } finally {
-      setLoading(false);
+/**
+ * Obtiene los identificadores reales del usuario desde
+ * la sesión de Supabase.
+ *
+ * No intenta leer id o auth_user_id desde authStore,
+ * porque AuthUser actualmente solamente contiene
+ * nombre y rol.
+ */
+async function obtenerIdentidadUsuario(
+  usuario: UsuarioActual
+): Promise<IdentidadUsuario> {
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
+
+  if (sessionError) {
+    console.warn(
+      'No se pudo obtener la sesión de Supabase:',
+      sessionError.message
+    );
+  }
+
+  const authUserId =
+    session?.user?.id ?? null;
+
+  let dbUserId: string | null = null;
+
+  if (authUserId) {
+    const {
+      data: usuarioDb,
+      error: usuarioError,
+    } = await supabase
+      .from('usuarios')
+      .select('id')
+      .eq('auth_user_id', authUserId)
+      .maybeSingle();
+
+    if (usuarioError) {
+      console.warn(
+        'No se pudo obtener el usuario de la base de datos:',
+        usuarioError.message
+      );
     }
-  }, [isAdmin]);
 
-  useEffect(() => {
-    fetchTickets();
-  }, [fetchTickets]);
+    dbUserId = usuarioDb?.id ?? null;
+  }
 
-  /** Crea un nuevo ticket y dispara el email vía API route */
+  return {
+    dbUserId,
+    authUserId,
+    nombre: usuario.nombre,
+    rol: usuario.rol,
+  };
+}
+
+export function useSoporte(): UseSoporteReturn {
+  const usuario = useAuthStore(
+    (state) => state.usuario
+  );
+
+  const isAdmin =
+    usuario?.rol === 'admin';
+
+  const isDeveloper =
+    usuario?.rol === 'desarrollador';
+
+  const [tickets, setTickets] =
+    useState<TicketSoporte[]>([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState<string | null>(null);
+
+  const [submitting, setSubmitting] =
+    useState(false);
+
+  /**
+   * Carga los tickets correspondientes
+   * según el rol del usuario.
+   */
+  const fetchTickets =
+    useCallback(async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        if (!usuario) {
+          setTickets([]);
+          return;
+        }
+
+        let data: TicketSoporte[] = [];
+
+        if (isDeveloper) {
+          data = await getAllTickets();
+        } else if (isAdmin) {
+          data = await getMyTickets();
+        }
+
+        setTickets(data);
+      } catch (err) {
+        const mensaje =
+          err instanceof Error
+            ? err.message
+            : 'Error al cargar tickets';
+
+        setError(mensaje);
+        setTickets([]);
+      } finally {
+        setLoading(false);
+      }
+    }, [
+      isAdmin,
+      isDeveloper,
+      usuario,
+    ]);
+
+/**
+ * Carga inicial de tickets.
+ *
+ * Se utiliza setTimeout para evitar actualizar
+ * estados de forma sincrónica dentro del efecto.
+ */
+useEffect(() => {
+  const timer = window.setTimeout(() => {
+    void fetchTickets();
+  }, 0);
+
+  return () => {
+    window.clearTimeout(timer);
+  };
+}, [fetchTickets]);
+  /**
+   * Crea un nuevo ticket.
+   * Solamente puede hacerlo el administrador.
+   */
   const crearTicket = useCallback(
-    async (payload: CreateTicketPayload): Promise<boolean> => {
+    async (
+      payload: CreateTicketPayload
+    ): Promise<boolean> => {
       if (!usuario) {
-        toast.error('Error', 'Debés estar autenticado para crear un ticket.');
+        toast.error(
+          'Error',
+          'Debés estar autenticado para crear un ticket.'
+        );
+
+        return false;
+      }
+
+      if (!isAdmin) {
+        toast.error(
+          'Acceso denegado',
+          'Solo el administrador puede crear tickets.'
+        );
+
+        return false;
+      }
+
+      if (submitting) {
         return false;
       }
 
       setSubmitting(true);
+
       try {
-        // Obtenemos la sesión real de Supabase si existe
-        const { data: { session } } = await supabase.auth.getSession();
-        let authUserId: string | null = session?.user?.id ?? null;
-        let dbUserId: string | null = null;
+        const identidad =
+          await obtenerIdentidadUsuario(
+            usuario
+          );
 
-        if (authUserId) {
-          const { data: userRow } = await supabase
-            .from('usuarios')
-            .select('id')
-            .eq('auth_user_id', authUserId)
-            .maybeSingle();
-          if (userRow) dbUserId = userRow.id;
-        }
+        const nuevoTicket =
+          await createTicket(
+            payload,
+            {
+              id: identidad.dbUserId,
+              auth_user_id:
+                identidad.authUserId,
+              nombre:
+                identidad.nombre,
+              rol: identidad.rol,
+            }
+          );
 
-        const userForService = {
-          id: dbUserId,
-          auth_user_id: authUserId,
-          nombre: usuario.nombre,
-          rol: usuario.rol,
-        };
-
-        const nuevoTicket = await createTicket(payload, userForService);
-
-        // Dispara email — no bloquea si falla
+        /**
+         * Envía la notificación por correo.
+         * Si falla, el ticket permanece guardado.
+         */
         try {
-          await fetch('/api/soporte', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              ticketId: nuevoTicket.id,
-              asunto: nuevoTicket.asunto,
-              categoria: nuevoTicket.categoria,
-              descripcion: nuevoTicket.descripcion,
-              nombreUsuario: usuario.nombre,
-              rolUsuario: usuario.rol,
-              creadoEn: nuevoTicket.creado_en,
-            }),
-          });
-        } catch (emailErr) {
-          // El ticket ya está en BD — solo loguear el error de email
-          console.warn('Error al enviar email de notificación:', emailErr);
+          const emailResponse =
+            await fetch('/api/soporte', {
+              method: 'POST',
+
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
+
+              body: JSON.stringify({
+                ticketId:
+                  nuevoTicket.id,
+
+                asunto:
+                  nuevoTicket.asunto,
+
+                categoria:
+                  nuevoTicket.categoria,
+
+                descripcion:
+                  nuevoTicket.descripcion,
+
+                nombreUsuario:
+                  identidad.nombre,
+
+                rolUsuario:
+                  identidad.rol,
+
+                creadoEn:
+                  nuevoTicket.creado_en,
+              }),
+            });
+
+          if (!emailResponse.ok) {
+            const emailError =
+              await emailResponse
+                .json()
+                .catch(() => ({}));
+
+            console.warn(
+              'El ticket fue guardado, pero el correo no pudo enviarse:',
+              emailError.error ??
+                emailError.message ??
+                emailResponse.statusText
+            );
+          }
+        } catch (emailError) {
+          console.warn(
+            'El ticket fue guardado, pero ocurrió un error al enviar el correo:',
+            emailError
+          );
         }
 
-        setTickets((prev) => [nuevoTicket, ...prev]);
-        toast.success('Ticket enviado', 'Te responderemos pronto.');
+        setTickets((actuales) => [
+          nuevoTicket,
+          ...actuales,
+        ]);
+
+        toast.success(
+          'Ticket enviado',
+          'Tu solicitud fue registrada correctamente.'
+        );
+
         return true;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Error al crear el ticket';
-        toast.error('Error al enviar ticket', msg);
+        const mensaje =
+          err instanceof Error
+            ? err.message
+            : 'Error al crear el ticket';
+
+        toast.error(
+          'Error al enviar ticket',
+          mensaje
+        );
+
         return false;
       } finally {
         setSubmitting(false);
       }
     },
-    [usuario]
+    [
+      isAdmin,
+      submitting,
+      usuario,
+    ]
   );
 
-  /** Actualiza el estado de un ticket (solo admins) — usa API route con service role */
-  const actualizarEstado = useCallback(
-    async (id: string, estado: TicketEstado, respuesta?: string): Promise<void> => {
-      try {
-        const res = await fetch(`/api/soporte/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            estado,
-            ...(respuesta !== undefined && { respuesta_interna: respuesta }),
-          }),
-        });
+  /**
+   * Permite que el desarrollador responda
+   * y cambie el estado del ticket.
+   */
+  const actualizarEstado =
+    useCallback(
+      async (
+        id: string,
+        estado: TicketEstado,
+        respuesta?: string
+      ): Promise<void> => {
+        if (!usuario) {
+          toast.error(
+            'Error',
+            'Debés estar autenticado.'
+          );
 
-        if (!res.ok) {
-          const json = await res.json().catch(() => ({}));
-          throw new Error(json.error ?? 'Error al actualizar el estado del ticket.');
+          return;
         }
 
-        await fetchTickets();
-        toast.success('Estado actualizado', `Ticket marcado como "${estado}".`);
+        if (!isDeveloper) {
+          toast.error(
+            'Acceso denegado',
+            'Solo un desarrollador puede responder tickets.'
+          );
+
+          return;
+        }
+
+        if (!id) {
+          toast.error(
+            'Error',
+            'El ID del ticket es obligatorio.'
+          );
+
+          return;
+        }
+
+        const requiereRespuesta =
+          estado === 'resuelto' ||
+          estado === 'cerrado';
+
+        if (
+          requiereRespuesta &&
+          !respuesta?.trim()
+        ) {
+          toast.error(
+            'Falta una respuesta',
+            'Escribí una respuesta antes de resolver o cerrar el ticket.'
+          );
+
+          return;
+        }
+
+        try {
+          const identidad =
+            await obtenerIdentidadUsuario(
+              usuario
+            );
+
+          const response = await fetch(
+            `/api/soporte/${id}`,
+            {
+              method: 'PATCH',
+
+              headers: {
+                'Content-Type':
+                  'application/json',
+
+                'x-noctua-role':
+                  identidad.rol,
+
+                'x-noctua-user-id':
+                  identidad.dbUserId ?? '',
+
+                'x-noctua-auth-user-id':
+                  identidad.authUserId ??
+                  '',
+
+                'x-noctua-user-name':
+                  identidad.nombre,
+              },
+
+              body: JSON.stringify({
+                estado,
+
+                ...(respuesta !==
+                  undefined && {
+                  respuesta_interna:
+                    respuesta.trim(),
+                }),
+              }),
+            }
+          );
+
+          const resultado =
+            await response
+              .json()
+              .catch(() => ({}));
+
+          if (!response.ok) {
+            throw new Error(
+              resultado.error ??
+                'Error al actualizar el estado del ticket.'
+            );
+          }
+
+          await fetchTickets();
+
+          toast.success(
+            'Ticket actualizado',
+            estado === 'resuelto'
+              ? 'El ticket fue respondido y marcado como resuelto.'
+              : `Ticket marcado como "${estado}".`
+          );
+        } catch (err) {
+          const mensaje =
+            err instanceof Error
+              ? err.message
+              : 'Error al actualizar el ticket';
+
+          toast.error(
+            'Error al actualizar',
+            mensaje
+          );
+        }
+      },
+      [
+        fetchTickets,
+        isDeveloper,
+        usuario,
+      ]
+    );
+
+  /**
+   * Permite que el administrador elimine
+   * un ticket respondido.
+   */
+  const eliminarTicket = useCallback(
+    async (
+      id: string
+    ): Promise<boolean> => {
+      if (!usuario) {
+        toast.error(
+          'Error',
+          'Debés estar autenticado.'
+        );
+
+        return false;
+      }
+
+      if (!isAdmin) {
+        toast.error(
+          'Acceso denegado',
+          'Solo el administrador propietario puede eliminar tickets.'
+        );
+
+        return false;
+      }
+
+      if (!id) {
+        toast.error(
+          'Error',
+          'El ID del ticket es obligatorio.'
+        );
+
+        return false;
+      }
+
+      try {
+        const identidad =
+          await obtenerIdentidadUsuario(
+            usuario
+          );
+
+        const response = await fetch(
+          `/api/soporte/${id}`,
+          {
+            method: 'DELETE',
+
+            headers: {
+              'x-noctua-role':
+                identidad.rol,
+
+              'x-noctua-user-id':
+                identidad.dbUserId ?? '',
+
+              'x-noctua-auth-user-id':
+                identidad.authUserId ?? '',
+
+              'x-noctua-user-name':
+                identidad.nombre,
+            },
+          }
+        );
+
+        const resultado =
+          await response
+            .json()
+            .catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(
+            resultado.error ??
+              'No se pudo eliminar el ticket.'
+          );
+        }
+
+        setTickets((actuales) =>
+          actuales.filter(
+            (ticket) =>
+              ticket.id !== id
+          )
+        );
+
+        toast.success(
+          'Ticket eliminado',
+          'El ticket fue eliminado correctamente.'
+        );
+
+        return true;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Error al actualizar estado';
-        toast.error('Error', msg);
+        const mensaje =
+          err instanceof Error
+            ? err.message
+            : 'No se pudo eliminar el ticket';
+
+        toast.error(
+          'Error al eliminar',
+          mensaje
+        );
+
+        return false;
       }
     },
-    [fetchTickets]
+    [
+      isAdmin,
+      usuario,
+    ]
   );
 
   return {
@@ -155,6 +582,10 @@ export function useSoporte(): UseSoporteReturn {
     submitting,
     crearTicket,
     actualizarEstado,
-    refetch: fetchTickets,
+    eliminarTicket,
+
+    refetch: () => {
+      void fetchTickets();
+    },
   };
 }

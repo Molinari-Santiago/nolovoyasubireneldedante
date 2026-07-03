@@ -1,225 +1,760 @@
 'use client';
 
 import { useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
-import { X, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
+import {
+  AnimatePresence,
+  motion,
+} from 'framer-motion';
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Trash2,
+  X,
+} from 'lucide-react';
+
 import { Button } from '@/components/ui/Button';
-import { TicketEstadoBadge } from './TicketEstadoBadge';
-import { TicketCategoriaBadge, getCategoriaBorderColor } from './TicketCategoriaBadge';
 import { cn } from '@/hooks/lib/utils';
-import type { TicketSoporte, TicketEstado } from '@/types/soporte';
+
+import {
+  TicketCategoriaBadge,
+  getCategoriaBorderColor,
+} from './TicketCategoriaBadge';
+import { TicketEstadoBadge } from './TicketEstadoBadge';
+
+import type {
+  TicketEstado,
+  TicketSoporte,
+} from '@/types/soporte';
 
 interface Props {
   ticket: TicketSoporte | null;
   isOpen: boolean;
+
+  /**
+   * Esta propiedad controla el panel
+   * utilizado por el desarrollador.
+   *
+   * Se mantiene el nombre isAdmin para no
+   * romper las llamadas realizadas desde
+   * TicketListView.
+   */
   isAdmin: boolean;
+
+  /**
+   * Indica si el administrador propietario
+   * puede eliminar el ticket.
+   */
+  canDelete: boolean;
+
   onClose: () => void;
-  onActualizarEstado: (id: string, estado: TicketEstado, respuesta?: string) => Promise<void>;
+
+  onActualizarEstado: (
+    id: string,
+    estado: TicketEstado,
+    respuesta?: string
+  ) => Promise<void>;
+
+  onEliminar: (
+    id: string
+  ) => Promise<boolean>;
 }
 
-const ESTADOS_ORDEN: TicketEstado[] = ['abierto', 'en_revision', 'resuelto', 'cerrado'];
+const ESTADOS_ORDEN: TicketEstado[] = [
+  'abierto',
+  'en_revision',
+  'resuelto',
+  'cerrado',
+];
 
-const ESTADO_LABEL: Record<TicketEstado, string> = {
-  abierto:     'Abierto',
+const ESTADO_LABEL: Record<
+  TicketEstado,
+  string
+> = {
+  abierto: 'Abierto',
   en_revision: 'En revisión',
-  resuelto:    'Resuelto',
-  cerrado:     'Cerrado',
+  resuelto: 'Resuelto',
+  cerrado: 'Cerrado',
 };
 
-function formatFecha(iso: string): string {
-  return new Date(iso).toLocaleString('es-AR', {
-    day: '2-digit', month: 'long', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
+/**
+ * Formatea las fechas usando la hora
+ * de Argentina.
+ */
+function formatFecha(
+  fechaIso: string
+): string {
+  return new Date(
+    fechaIso
+  ).toLocaleString('es-AR', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone:
+      'America/Argentina/Buenos_Aires',
   });
 }
 
-export function TicketDetalleModal({ ticket, isOpen, isAdmin, onClose, onActualizarEstado }: Props) {
-  const [estadoSeleccionado, setEstadoSeleccionado] = useState<TicketEstado | null>(null);
-  const [respuesta, setRespuesta]                   = useState('');
-  const [guardando, setGuardando]                   = useState(false);
+export function TicketDetalleModal({
+  ticket,
+  isOpen,
+  isAdmin,
+  canDelete,
+  onClose,
+  onActualizarEstado,
+  onEliminar,
+}: Props) {
+  const [
+    estadoSeleccionado,
+    setEstadoSeleccionado,
+  ] = useState<TicketEstado | null>(
+    null
+  );
 
-  if (!ticket) return null;
+  const [respuesta, setRespuesta] =
+    useState('');
 
-  const estadoActivo = estadoSeleccionado ?? ticket.estado;
-  const borderColor  = getCategoriaBorderColor(ticket.categoria);
+  const [guardando, setGuardando] =
+    useState(false);
 
-  const handleGuardar = async () => {
-    if (!estadoSeleccionado) return;
-    setGuardando(true);
-    await onActualizarEstado(ticket.id, estadoSeleccionado, respuesta || undefined);
-    setGuardando(false);
+  const [
+    confirmandoEliminar,
+    setConfirmandoEliminar,
+  ] = useState(false);
+
+  const [eliminando, setEliminando] =
+    useState(false);
+
+  /**
+   * Reinicia todos los estados internos
+   * utilizados por el modal.
+   */
+  const reiniciarEstadoLocal = () => {
     setEstadoSeleccionado(null);
     setRespuesta('');
+    setConfirmandoEliminar(false);
+    setGuardando(false);
+    setEliminando(false);
+  };
+
+  if (!ticket) {
+    return null;
+  }
+
+  const estadoActivo =
+    estadoSeleccionado ??
+    ticket.estado;
+
+  const borderColor =
+    getCategoriaBorderColor(
+      ticket.categoria
+    );
+
+  const respuestaExistente =
+    ticket.respuesta_interna?.trim() ??
+    '';
+
+  const respuestaNueva =
+    respuesta.trim();
+
+  const respuestaDisponible =
+    respuestaNueva ||
+    respuestaExistente;
+
+  const estadoRequiereRespuesta =
+    estadoActivo === 'resuelto' ||
+    estadoActivo === 'cerrado';
+
+  const puedeGuardar =
+    Boolean(estadoSeleccionado) &&
+    !guardando &&
+    !eliminando &&
+    !(
+      estadoRequiereRespuesta &&
+      !respuestaDisponible
+    );
+
+  /**
+   * Cierra el modal y limpia su estado.
+   *
+   * No permite cerrar mientras se está
+   * guardando o eliminando información.
+   */
+  const handleClose = () => {
+    if (guardando || eliminando) {
+      return;
+    }
+
+    reiniciarEstadoLocal();
     onClose();
   };
+
+  /**
+   * Guarda el nuevo estado y la respuesta
+   * escrita por el desarrollador.
+   */
+  const handleGuardar =
+    async () => {
+      if (
+        !estadoSeleccionado ||
+        !puedeGuardar
+      ) {
+        return;
+      }
+
+      try {
+        setGuardando(true);
+
+        await onActualizarEstado(
+          ticket.id,
+          estadoSeleccionado,
+          respuestaNueva ||
+            undefined
+        );
+
+        reiniciarEstadoLocal();
+        onClose();
+      } finally {
+        setGuardando(false);
+      }
+    };
+
+  /**
+   * Elimina el ticket después de recibir
+   * la confirmación del administrador.
+   */
+  const handleEliminar =
+    async () => {
+      if (
+        !canDelete ||
+        eliminando
+      ) {
+        return;
+      }
+
+      try {
+        setEliminando(true);
+
+        const eliminado =
+          await onEliminar(ticket.id);
+
+        if (eliminado) {
+          reiniciarEstadoLocal();
+          onClose();
+        }
+      } finally {
+        setEliminando(false);
+      }
+    };
 
   return (
     <AnimatePresence>
       {isOpen && (
         <>
+          {/* Fondo del modal */}
           <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50"
-            onClick={onClose}
+            initial={{
+              opacity: 0,
+            }}
+            animate={{
+              opacity: 1,
+            }}
+            exit={{
+              opacity: 0,
+            }}
+            transition={{
+              duration: 0.15,
+            }}
+            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm"
+            onClick={handleClose}
           />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={`Ticket: ${ticket.asunto}`}>
+
+          {/* Contenedor del modal */}
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Ticket: ${ticket.asunto}`}
+          >
             <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 16 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 16 }}
-              transition={{ duration: 0.2, ease: 'easeOut' }}
+              initial={{
+                opacity: 0,
+                scale: 0.96,
+                y: 16,
+              }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+                y: 0,
+              }}
+              exit={{
+                opacity: 0,
+                scale: 0.96,
+                y: 16,
+              }}
+              transition={{
+                duration: 0.2,
+                ease: 'easeOut',
+              }}
               className={cn(
-                'relative w-full max-w-xl bg-[#0d0d0d] border border-zinc-800 border-l-4 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col',
+                'relative flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-l-4 border-zinc-800 bg-[#0d0d0d] shadow-2xl',
                 borderColor
               )}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(event) =>
+                event.stopPropagation()
+              }
             >
-              {/* Header */}
-              <div className="flex items-start justify-between px-6 py-5 border-b border-zinc-800 flex-shrink-0">
+              {/* Encabezado */}
+              <div className="flex flex-shrink-0 items-start justify-between border-b border-zinc-800 px-5 py-5 sm:px-6">
                 <div className="flex-1 pr-4">
-                  <div className="flex items-center gap-2 flex-wrap mb-2">
-                    <TicketCategoriaBadge categoria={ticket.categoria} />
-                    <TicketEstadoBadge estado={ticket.estado} />
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <TicketCategoriaBadge
+                      categoria={
+                        ticket.categoria
+                      }
+                    />
+
+                    <TicketEstadoBadge
+                      estado={
+                        ticket.estado
+                      }
+                    />
                   </div>
-                  <h2 className="text-white font-bold text-lg leading-snug">{ticket.asunto}</h2>
+
+                  <h2 className="text-lg font-bold leading-snug text-white">
+                    {ticket.asunto}
+                  </h2>
                 </div>
-                <button onClick={onClose} aria-label="Cerrar" className="text-zinc-600 hover:text-white transition-colors p-1 rounded-lg hover:bg-zinc-800 flex-shrink-0">
+
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  disabled={
+                    guardando ||
+                    eliminando
+                  }
+                  aria-label="Cerrar"
+                  className="flex-shrink-0 rounded-lg p-1 text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
                   <X size={18} />
                 </button>
               </div>
 
-              {/* Body — scrollable */}
-              <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-
-                {/* Meta */}
-                <div className="grid grid-cols-2 gap-4 text-sm">
+              {/* Contenido desplazable */}
+              <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
+                {/* Datos del ticket */}
+                <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
                   {ticket.nombre_usuario && (
                     <div>
-                      <p className="text-xs text-zinc-600 uppercase tracking-widest font-semibold mb-1">Usuario</p>
-                      <p className="text-zinc-300">{ticket.nombre_usuario} <span className="text-zinc-600 text-xs capitalize">({ticket.rol_usuario})</span></p>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-zinc-600">
+                        Usuario
+                      </p>
+
+                      <p className="text-zinc-300">
+                        {
+                          ticket.nombre_usuario
+                        }{' '}
+
+                        <span className="text-xs capitalize text-zinc-600">
+                          (
+                          {
+                            ticket.rol_usuario
+                          }
+                          )
+                        </span>
+                      </p>
                     </div>
                   )}
+
                   <div>
-                    <p className="text-xs text-zinc-600 uppercase tracking-widest font-semibold mb-1">Creado</p>
-                    <p className="text-zinc-300">{formatFecha(ticket.creado_en)}</p>
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-zinc-600">
+                      Creado
+                    </p>
+
+                    <p className="text-zinc-300">
+                      {formatFecha(
+                        ticket.creado_en
+                      )}
+                    </p>
                   </div>
+
                   {ticket.resuelto_en && (
                     <div>
-                      <p className="text-xs text-zinc-600 uppercase tracking-widest font-semibold mb-1">Resuelto</p>
-                      <p className="text-zinc-300">{formatFecha(ticket.resuelto_en)}</p>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-zinc-600">
+                        Resuelto
+                      </p>
+
+                      <p className="text-zinc-300">
+                        {formatFecha(
+                          ticket.resuelto_en
+                        )}
+                      </p>
                     </div>
                   )}
+
                   <div>
-                    <p className="text-xs text-zinc-600 uppercase tracking-widest font-semibold mb-1">ID</p>
-                    <p className="text-zinc-600 text-xs font-mono truncate">{ticket.id}</p>
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-zinc-600">
+                      ID
+                    </p>
+
+                    <p className="truncate font-mono text-xs text-zinc-600">
+                      {ticket.id}
+                    </p>
                   </div>
                 </div>
 
                 {/* Descripción */}
                 <div>
-                  <p className="text-xs text-zinc-600 uppercase tracking-widest font-semibold mb-2">Descripción</p>
-                  <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-                    <p className="text-zinc-300 text-sm leading-relaxed whitespace-pre-wrap">{ticket.descripcion}</p>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-600">
+                    Descripción
+                  </p>
+
+                  <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">
+                      {
+                        ticket.descripcion
+                      }
+                    </p>
                   </div>
                 </div>
 
-                {/* Respuesta interna (si existe) */}
+                {/* Respuesta del equipo */}
                 {ticket.respuesta_interna && (
                   <div>
-                    <p className="text-xs text-zinc-600 uppercase tracking-widest font-semibold mb-2">Respuesta del equipo</p>
-                    <div className="bg-green-500/5 border border-green-500/20 rounded-lg p-4">
-                      <p className="text-green-300 text-sm leading-relaxed whitespace-pre-wrap">{ticket.respuesta_interna}</p>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-600">
+                      Respuesta del equipo
+                    </p>
+
+                    <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-4">
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-green-300">
+                        {
+                          ticket.respuesta_interna
+                        }
+                      </p>
                     </div>
                   </div>
                 )}
 
-                {/* Timeline visual */}
+                {/* Estado visual */}
                 <div>
-                  <p className="text-xs text-zinc-600 uppercase tracking-widest font-semibold mb-3">Estado del ticket</p>
-                  <div className="flex items-center gap-0">
-                    {ESTADOS_ORDEN.map((est, i) => {
-                      const idx    = ESTADOS_ORDEN.indexOf(ticket.estado);
-                      const isPast = i <= idx;
-                      return (
-                        <div key={est} className="flex items-center flex-1 last:flex-none">
-                          <div className={cn('flex flex-col items-center gap-1', i < ESTADOS_ORDEN.length - 1 && 'flex-1')}>
-                            <div className={cn('w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all',
-                              isPast ? 'bg-white border-white' : 'bg-zinc-900 border-zinc-700')}>
-                              {isPast && i === idx ? <CheckCircle2 size={12} className="text-black" /> : isPast ? <CheckCircle2 size={12} className="text-black" /> : <Clock size={10} className="text-zinc-600" />}
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-zinc-600">
+                    Estado del ticket
+                  </p>
+
+                  <div className="flex items-center">
+                    {ESTADOS_ORDEN.map(
+                      (
+                        estado,
+                        indice
+                      ) => {
+                        const indiceActual =
+                          ESTADOS_ORDEN.indexOf(
+                            ticket.estado
+                          );
+
+                        const completado =
+                          indice <=
+                          indiceActual;
+
+                        return (
+                          <div
+                            key={
+                              estado
+                            }
+                            className="flex flex-1 items-center last:flex-none"
+                          >
+                            <div
+                              className={cn(
+                                'flex flex-col items-center gap-1',
+
+                                indice <
+                                  ESTADOS_ORDEN.length -
+                                    1 &&
+                                  'flex-1'
+                              )}
+                            >
+                              <div
+                                className={cn(
+                                  'flex h-6 w-6 items-center justify-center rounded-full border-2 transition-all',
+
+                                  completado
+                                    ? 'border-white bg-white'
+                                    : 'border-zinc-700 bg-zinc-900'
+                                )}
+                              >
+                                {completado ? (
+                                  <CheckCircle2
+                                    size={
+                                      12
+                                    }
+                                    className="text-black"
+                                  />
+                                ) : (
+                                  <Clock
+                                    size={
+                                      10
+                                    }
+                                    className="text-zinc-600"
+                                  />
+                                )}
+                              </div>
+
+                              <span
+                                className={cn(
+                                  'whitespace-nowrap text-center text-[9px] font-semibold uppercase tracking-wider',
+
+                                  completado
+                                    ? 'text-zinc-300'
+                                    : 'text-zinc-700'
+                                )}
+                              >
+                                {
+                                  ESTADO_LABEL[
+                                    estado
+                                  ]
+                                }
+                              </span>
                             </div>
-                            <span className={cn('text-[9px] text-center font-semibold uppercase tracking-wider whitespace-nowrap',
-                              isPast ? 'text-zinc-300' : 'text-zinc-700')}>
-                              {ESTADO_LABEL[est]}
-                            </span>
+
+                            {indice <
+                              ESTADOS_ORDEN.length -
+                                1 && (
+                              <div
+                                className={cn(
+                                  'mx-1 mb-4 h-px flex-1 transition-all',
+
+                                  completado &&
+                                    indice <
+                                      indiceActual
+                                    ? 'bg-white'
+                                    : 'bg-zinc-800'
+                                )}
+                              />
+                            )}
                           </div>
-                          {i < ESTADOS_ORDEN.length - 1 && (
-                            <div className={cn('h-px flex-1 mx-1 mb-4 transition-all', isPast && i < idx ? 'bg-white' : 'bg-zinc-800')} />
-                          )}
-                        </div>
-                      );
-                    })}
+                        );
+                      }
+                    )}
                   </div>
                 </div>
 
-                {/* Panel admin — cambiar estado */}
+                {/* Panel del desarrollador */}
                 {isAdmin && (
-                  <div className="border border-zinc-800 rounded-xl p-4 space-y-4 bg-zinc-900/40">
-                    <p className="text-xs text-zinc-500 uppercase tracking-widest font-semibold flex items-center gap-1.5">
-                      <AlertCircle size={12} /> Panel de administración
+                  <div className="space-y-4 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+                    <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-zinc-500">
+                      <AlertCircle
+                        size={12}
+                      />
+
+                      Panel del desarrollador
                     </p>
 
-                    {/* Selector de estado */}
+                    {/* Selección de estado */}
                     <div>
-                      <p className="text-xs text-zinc-600 mb-2 font-semibold">Cambiar estado</p>
+                      <p className="mb-2 text-xs font-semibold text-zinc-600">
+                        Cambiar estado
+                      </p>
+
                       <div className="flex flex-wrap gap-2">
-                        {ESTADOS_ORDEN.map((est) => (
-                          <button
-                            key={est}
-                            type="button"
-                            onClick={() => setEstadoSeleccionado(est)}
-                            className={cn(
-                              'px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all',
-                              estadoActivo === est
-                                ? 'bg-white text-black border-white'
-                                : 'border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-300'
-                            )}
-                          >
-                            {ESTADO_LABEL[est]}
-                          </button>
-                        ))}
+                        {ESTADOS_ORDEN.map(
+                          (estado) => (
+                            <button
+                              key={
+                                estado
+                              }
+                              type="button"
+                              disabled={
+                                guardando ||
+                                eliminando
+                              }
+                              onClick={() =>
+                                setEstadoSeleccionado(
+                                  estado
+                                )
+                              }
+                              className={cn(
+                                'rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50',
+
+                                estadoActivo ===
+                                  estado
+                                  ? 'border-white bg-white text-black'
+                                  : 'border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-300'
+                              )}
+                            >
+                              {
+                                ESTADO_LABEL[
+                                  estado
+                                ]
+                              }
+                            </button>
+                          )
+                        )}
                       </div>
                     </div>
 
-                    {/* Respuesta interna */}
+                    {/* Respuesta */}
                     <div>
-                      <label className="text-xs text-zinc-600 mb-1.5 font-semibold block">Respuesta interna (opcional)</label>
+                      <label
+                        htmlFor="respuesta-ticket"
+                        className="mb-1.5 block text-xs font-semibold text-zinc-600"
+                      >
+                        Respuesta para el usuario
+                      </label>
+
                       <textarea
+                        id="respuesta-ticket"
                         value={respuesta}
-                        onChange={(e) => setRespuesta(e.target.value)}
-                        placeholder="Agrega una nota o respuesta para el usuario..."
-                        rows={3}
-                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm placeholder:text-zinc-600 outline-none resize-none focus:border-zinc-500 transition-colors"
+                        onChange={(event) =>
+                          setRespuesta(
+                            event.target.value
+                          )
+                        }
+                        disabled={
+                          guardando ||
+                          eliminando
+                        }
+                        placeholder={
+                          respuestaExistente
+                            ? 'Escribí una nueva respuesta solamente si querés reemplazar la anterior...'
+                            : 'Escribí la solución o respuesta para el usuario...'
+                        }
+                        rows={4}
+                        className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
                       />
+
+                      {estadoRequiereRespuesta &&
+                        !respuestaDisponible && (
+                          <p className="mt-1 text-xs text-yellow-400">
+                            Para resolver o cerrar
+                            el ticket debés escribir
+                            una respuesta.
+                          </p>
+                        )}
                     </div>
 
                     <Button
                       variant="primary"
                       className="w-full"
-                      onClick={handleGuardar}
+                      onClick={
+                        handleGuardar
+                      }
                       loading={guardando}
-                      disabled={!estadoSeleccionado}
+                      disabled={
+                        !puedeGuardar
+                      }
                     >
                       Guardar cambios
                     </Button>
                   </div>
                 )}
 
-                {/* Mensaje para usuarios no-admin */}
-                {!isAdmin && (
-                  <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-4 text-center">
-                    <p className="text-blue-300 text-sm">Nuestro equipo está revisando tu solicitud.</p>
-                    <p className="text-zinc-600 text-xs mt-1">Te notificaremos cuando haya novedades.</p>
+                {/* Mensaje para el administrador */}
+                {!isAdmin &&
+                  !ticket.respuesta_interna && (
+                    <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4 text-center">
+                      <p className="text-sm text-blue-300">
+                        Nuestro equipo está
+                        revisando tu solicitud.
+                      </p>
+
+                      <p className="mt-1 text-xs text-zinc-600">
+                        La respuesta aparecerá en
+                        este espacio cuando esté
+                        disponible.
+                      </p>
+                    </div>
+                  )}
+
+                {/* Eliminación del ticket */}
+                {canDelete && (
+                  <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+                    {!confirmandoEliminar ? (
+                      <>
+                        <div className="mb-3 flex items-start gap-3">
+                          <Trash2
+                            size={18}
+                            className="mt-0.5 flex-shrink-0 text-red-400"
+                          />
+
+                          <div>
+                            <p className="text-sm font-semibold text-red-300">
+                              Eliminar ticket
+                              respondido
+                            </p>
+
+                            <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                              El ticket ya fue
+                              respondido y puede
+                              eliminarse del listado.
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setConfirmandoEliminar(
+                              true
+                            )
+                          }
+                          disabled={
+                            eliminando ||
+                            guardando
+                          }
+                          className="w-full rounded-lg border border-red-500/40 px-4 py-2.5 text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Eliminar ticket
+                        </button>
+                      </>
+                    ) : (
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-sm font-semibold text-red-300">
+                            ¿Confirmar eliminación?
+                          </p>
+
+                          <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                            El ticket desaparecerá
+                            del listado. Esta acción
+                            no puede deshacerse.
+                          </p>
+                        </div>
+
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <button
+                            type="button"
+                            disabled={
+                              eliminando
+                            }
+                            onClick={() =>
+                              setConfirmandoEliminar(
+                                false
+                              )
+                            }
+                            className="flex-1 rounded-lg border border-zinc-700 px-3 py-2 text-sm font-semibold text-zinc-300 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Cancelar
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={
+                              eliminando
+                            }
+                            onClick={() => {
+                              void handleEliminar();
+                            }}
+                            className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm font-bold text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {eliminando
+                              ? 'Eliminando...'
+                              : 'Sí, eliminar'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

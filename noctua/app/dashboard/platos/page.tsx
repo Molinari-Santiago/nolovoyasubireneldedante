@@ -1,62 +1,122 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Plus, Sparkles, Search } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Plus, Search } from 'lucide-react';
 import { DishAdminCard } from '@/components/platos/DishAdminCard';
 import { DishFormPanel } from '@/components/platos/DishFormPanel';
-import { DishSuggesterModal } from '@/components/platos/DishSuggesterModal';
 import { ConfirmDeleteModal } from '@/components/superadm/shared/ConfirmDeleteModal';
-import { useDishesStore } from '@/store/dishesStore';
-import { useStockStore } from '@/store/stockStore';
-import type { Dish, DishCategory } from '@/types/dishes';
-
-const CATEGORIES: { value: DishCategory | 'all'; label: string }[] = [
-  { value: 'all', label: 'Todas' },
-  { value: 'entradas', label: 'Entradas' },
-  { value: 'hamburguesas', label: 'Hamburguesas' },
-  { value: 'sandwiches', label: 'Sandwiches' },
-  { value: 'minutas', label: 'Minutas' },
-  { value: 'pastas', label: 'Pastas' },
-  { value: 'pizzas', label: 'Pizzas' },
-  { value: 'ensaladas', label: 'Ensaladas' },
-  { value: 'postres', label: 'Postres' },
-  { value: 'bebidas_sin_alcohol', label: 'Bebidas sin alcohol' },
-  { value: 'bebidas_con_alcohol', label: 'Bebidas con alcohol' },
-  { value: 'cafeteria', label: 'Cafetería' },
-];
+import { ingredientesService } from '@/services/ingredientesService';
+import { platosService } from '@/services/platosService';
+import type { Ingrediente, Plato, PlatoInput } from '@/types/platos';
 
 export default function PlatosPage() {
-  const { getDishesByCategory, setSearchQuery, setSelectedCategory, selectedCategory, searchQuery, recalculateAvailability } = useDishesStore();
-  const { categories } = useStockStore();
-
+  const queryClient = useQueryClient();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('all');
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [isSuggesterOpen, setIsSuggesterOpen] = useState(false);
-  const [dishToEdit, setDishToEdit] = useState<Dish | undefined>();
-  const [dishToDelete, setDishToDelete] = useState<Dish | undefined>();
+  const [platoToEdit, setPlatoToEdit] = useState<Plato | undefined>();
+  const [platoToDelete, setPlatoToDelete] = useState<Plato | undefined>();
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const allIngredients = categories.flatMap(cat => cat.ingredients);
-    recalculateAvailability(allIngredients);
-  }, [categories, recalculateAvailability]);
+  const platosQuery = useQuery({
+    queryKey: ['platos', 'productos'],
+    queryFn: platosService.getPlatos,
+  });
 
-  const filteredDishes = getDishesByCategory(selectedCategory).filter(dish =>
-    dish.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const categoriasQuery = useQuery({
+    queryKey: ['platos', 'categorias'],
+    queryFn: platosService.getCategorias,
+  });
 
-  const handleEdit = (dish: Dish) => {
-    setDishToEdit(dish);
+  const ingredientesQuery = useQuery({
+    queryKey: ['platos', 'ingredientes'],
+    queryFn: ingredientesService.getIngredientes,
+  });
+
+  const invalidatePlatos = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['platos'] }),
+      queryClient.invalidateQueries({ queryKey: ['productos', 'catalogo', 'disponibles'] }),
+    ]);
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: (input: PlatoInput) => {
+      if (platoToEdit) return platosService.updatePlato(platoToEdit.id, input);
+      return platosService.createPlato(input);
+    },
+    onSuccess: async () => {
+      setMutationError(null);
+      setIsFormOpen(false);
+      setPlatoToEdit(undefined);
+      await invalidatePlatos();
+    },
+    onError: (error) => {
+      setMutationError(error instanceof Error ? error.message : 'No se pudo guardar el plato.');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => platosService.softDeletePlato(id),
+    onSuccess: async () => {
+      setMutationError(null);
+      setPlatoToDelete(undefined);
+      await invalidatePlatos();
+    },
+    onError: (error) => {
+      setMutationError(error instanceof Error ? error.message : 'No se pudo eliminar el plato.');
+    },
+  });
+
+  const createIngredientMutation = useMutation({
+    mutationFn: ingredientesService.createIngrediente,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['platos', 'ingredientes'] });
+    },
+  });
+
+  const platos = platosQuery.data ?? [];
+  const categorias = categoriasQuery.data ?? [];
+  const ingredientes = ingredientesQuery.data ?? [];
+
+  const categoriesForFilter = useMemo(() => {
+    const fromProducts = new Map<string, string>();
+    platos.forEach((plato) => {
+      if (plato.categoriaId) fromProducts.set(plato.categoriaId, plato.categoriaNombre);
+    });
+    categorias.forEach((category) => fromProducts.set(category.id, category.nombre));
+    return Array.from(fromProducts.entries()).map(([id, nombre]) => ({ id, nombre }));
+  }, [categorias, platos]);
+
+  const filteredPlatos = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return platos.filter((plato) => {
+      const matchesCategory = selectedCategory === 'all' || plato.categoriaId === selectedCategory;
+      const matchesSearch = !query || plato.nombre.toLowerCase().includes(query);
+      return matchesCategory && matchesSearch;
+    });
+  }, [platos, searchQuery, selectedCategory]);
+
+  const openCreate = () => {
+    setMutationError(null);
+    setPlatoToEdit(undefined);
     setIsFormOpen(true);
   };
 
-  const handleDelete = (dish: Dish) => {
-    setDishToDelete(dish);
+  const openEdit = (plato: Plato) => {
+    setMutationError(null);
+    setPlatoToEdit(plato);
+    setIsFormOpen(true);
   };
 
-  const confirmDelete = () => {
-    if (dishToDelete) {
-      useDishesStore.getState().deleteDish(dishToDelete.id);
-      setDishToDelete(undefined);
-    }
+  const handleCreateIngredient = async (input: {
+    nombre: string;
+    unidadMedida: string;
+    stockActual: number;
+    stockMinimo: number;
+  }): Promise<Ingrediente> => {
+    return createIngredientMutation.mutateAsync(input);
   };
 
   return (
@@ -64,28 +124,25 @@ export default function PlatosPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-white mb-2">Platos</h1>
-          <p className="text-[#676b67]">Gestión del menú del restaurante</p>
+          <p className="text-[#676b67]">Productos reales desde Supabase y recetas persistidas.</p>
         </div>
-        <div className="flex gap-3">
-          <button
-            onClick={() => setIsSuggesterOpen(true)}
-            className="px-4 py-2 border border-[#252525] text-white rounded-lg hover:bg-[#202020] flex items-center gap-2"
-          >
-            <Sparkles size={16} />
-            Sugerencias
-          </button>
-          <button
-            onClick={() => {
-              setDishToEdit(undefined);
-              setIsFormOpen(true);
-            }}
-            className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-500 flex items-center gap-2"
-          >
-            <Plus size={16} />
-            Nuevo plato
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={openCreate}
+          className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-500 flex items-center gap-2"
+        >
+          <Plus size={16} />
+          Nuevo plato
+        </button>
       </div>
+
+      {(mutationError || platosQuery.error || ingredientesQuery.error) && (
+        <div className="mb-6 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
+          {mutationError ||
+            (platosQuery.error instanceof Error ? platosQuery.error.message : null) ||
+            (ingredientesQuery.error instanceof Error ? ingredientesQuery.error.message : null)}
+        </div>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-4 mb-8">
         <div className="relative flex-1">
@@ -94,57 +151,64 @@ export default function PlatosPage() {
             type="text"
             placeholder="Buscar plato..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(event) => setSearchQuery(event.target.value)}
             className="w-full bg-[#151515] border border-[#252525] rounded-lg pl-10 pr-4 py-2 text-white"
           />
         </div>
         <select
           value={selectedCategory}
-          onChange={(e) => setSelectedCategory(e.target.value as any)}
+          onChange={(event) => setSelectedCategory(event.target.value)}
           className="bg-[#151515] border border-[#252525] rounded-lg px-4 py-2 text-white"
         >
-          {CATEGORIES.map((cat) => (
-            <option key={cat.value} value={cat.value}>{cat.label}</option>
+          <option value="all">Todas</option>
+          {categoriesForFilter.map((category) => (
+            <option key={category.id} value={category.id}>{category.nombre}</option>
           ))}
         </select>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {filteredDishes.map((dish) => (
-          <DishAdminCard
-            key={dish.id}
-            dish={dish}
-            onEdit={() => handleEdit(dish)}
-            onDelete={() => handleDelete(dish)}
-          />
-        ))}
-        {filteredDishes.length === 0 && (
-          <div className="col-span-full text-center py-12">
-            <p className="text-[#676b67]">No hay platos para mostrar</p>
-          </div>
-        )}
-      </div>
+      {platosQuery.isLoading ? (
+        <p className="text-[#676b67] text-center py-12">Cargando platos reales...</p>
+      ) : filteredPlatos.length === 0 ? (
+        <div className="text-center py-12">
+          <p className="text-[#676b67]">No hay platos para mostrar</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          {filteredPlatos.map((plato) => (
+            <DishAdminCard
+              key={plato.id}
+              plato={plato}
+              onEdit={() => openEdit(plato)}
+              onDelete={() => setPlatoToDelete(plato)}
+            />
+          ))}
+        </div>
+      )}
 
       <DishFormPanel
+        key={`${isFormOpen ? 'open' : 'closed'}-${platoToEdit?.id || 'new'}`}
         isOpen={isFormOpen}
         onClose={() => {
           setIsFormOpen(false);
-          setDishToEdit(undefined);
+          setPlatoToEdit(undefined);
         }}
-        dishToEdit={dishToEdit}
-      />
-
-      <DishSuggesterModal
-        isOpen={isSuggesterOpen}
-        onClose={() => setIsSuggesterOpen(false)}
+        platoToEdit={platoToEdit}
+        categorias={categorias}
+        ingredientes={ingredientes}
+        isSaving={saveMutation.isPending}
+        onSubmit={(input) => saveMutation.mutate(input)}
+        onCreateIngredient={handleCreateIngredient}
       />
 
       <ConfirmDeleteModal
-        isOpen={!!dishToDelete}
-        onClose={() => setDishToDelete(undefined)}
-        onConfirm={confirmDelete}
-        title={`Eliminar "${dishToDelete?.name || ''}"`}
-        message="¿Estás seguro de que querés eliminar este plato?"
+        isOpen={!!platoToDelete}
+        onClose={() => setPlatoToDelete(undefined)}
+        onConfirm={() => {
+          if (platoToDelete) deleteMutation.mutate(platoToDelete.id);
+        }}
+        title={`Eliminar "${platoToDelete?.nombre || ''}"`}
+        message="El plato se desactivara en productos.activo y no se eliminara historicamente."
       />
     </div>
   );

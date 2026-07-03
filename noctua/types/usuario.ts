@@ -1,5 +1,11 @@
-export type RolUsuario = 'admin' | 'mozo' | 'cocina' | 'cajero';
-
+export type RolUsuario =
+  | 'admin'
+  | 'mozo'
+  | 'cocina'
+  | 'cajero'
+  | 'stock'
+  | 'delivery'
+  | 'desarrollador';
 export interface Usuario {
   id: string;
   auth_user_id: string;
