@@ -42,7 +42,109 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({ id: data.user.id, email: data.user.email });
     }
+if (accion === 'crearPerfil') {
+  const {
+    auth_user_id,
+    nombre,
+    username,
+    rol,
+    activo = true,
+  } = body;
 
+  if (
+    !auth_user_id ||
+    !nombre ||
+    !username ||
+    !rol
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          'Faltan datos obligatorios para crear el perfil.',
+      },
+      {
+        status: 400,
+      }
+    );
+  }
+
+  const ROLES_VALIDOS = [
+    'admin',
+    'mozo',
+    'cocina',
+    'cajero',
+    'stock',
+    'delivery',
+    'desarrollador',
+  ];
+
+  if (!ROLES_VALIDOS.includes(rol)) {
+    return NextResponse.json(
+      {
+        error: `Rol inválido: ${rol}`,
+      },
+      {
+        status: 400,
+      }
+    );
+  }
+
+  const {
+    data: usuario,
+    error: usuarioError,
+  } = await supabaseAdmin
+    .from('usuarios')
+    .insert({
+      auth_user_id,
+      nombre: nombre.trim(),
+      username: username
+        .trim()
+        .toLowerCase(),
+      rol,
+      activo: Boolean(activo),
+    })
+    .select(
+      `
+        id,
+        auth_user_id,
+        nombre,
+        username,
+        rol,
+        activo,
+        creado_en
+      `
+    )
+    .single();
+
+  if (usuarioError) {
+    console.error(
+      '[admin/usuarios] Error al crear perfil:',
+      {
+        message: usuarioError.message,
+        code: usuarioError.code,
+        details: usuarioError.details,
+        hint: usuarioError.hint,
+      }
+    );
+
+    return NextResponse.json(
+      {
+        error: usuarioError.message,
+        code: usuarioError.code,
+      },
+      {
+        status:
+          usuarioError.code === '23505'
+            ? 409
+            : 400,
+      }
+    );
+  }
+
+  return NextResponse.json({
+    usuario,
+  });
+}
     if (accion === 'actualizar') {
       const { authUserId, email, password } = body;
 

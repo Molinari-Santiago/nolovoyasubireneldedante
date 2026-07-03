@@ -86,22 +86,37 @@ export async function crearUsuario(data: {
   rol: RolUsuario;
   activo: boolean;
 }): Promise<Usuario> {
-  const { data: nuevo, error } = await supabase
-    .from('usuarios')
-    .insert([data])
-    .select('id, auth_user_id, nombre, username, rol, activo')
-    .maybeSingle();
+  const response = await fetch('/api/admin/usuarios', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      accion: 'crearPerfil',
+      ...data,
+    }),
+  });
 
-  if (error) {
-    console.error('Error al crear usuario en Supabase:', error);
-    throw new Error('No se pudo crear el usuario en la base de datos.');
+  const resultado = await response
+    .json()
+    .catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(
+      resultado.error ??
+        'No se pudo crear el usuario en la base de datos.'
+    );
   }
 
-  if (!nuevo) {
-    throw new Error('No se obtuvo respuesta al crear el usuario.');
+  if (!resultado.usuario) {
+    throw new Error(
+      'El servidor no devolvió el usuario creado.'
+    );
   }
 
-  return mapUsuario(nuevo as UsuarioRow);
+  return mapUsuario(
+    resultado.usuario as UsuarioRow
+  );
 }
 
 export async function actualizarUsuario(

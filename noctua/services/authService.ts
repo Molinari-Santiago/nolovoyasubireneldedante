@@ -2,49 +2,94 @@ export async function crearAuthUsuario(data: {
   email: string;
   password: string;
 }): Promise<{ id: string; email: string }> {
-  const res = await fetch('/api/admin/usuarios', {
+  const response = await fetch('/api/admin/usuarios', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ accion: 'crear', ...data }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      accion: 'crear',
+      email: data.email,
+      password: data.password,
+    }),
   });
 
-  const json = await res.json();
+  const resultado = await response
+    .json()
+    .catch(() => ({}));
 
-  if (!res.ok) {
-    console.warn('No se pudo crear el usuario en Supabase Auth:', json.error);
-    return { id: crypto.randomUUID(), email: data.email };
+  if (!response.ok) {
+    throw new Error(
+      resultado.error ??
+        'No se pudo crear el usuario en Supabase Auth.'
+    );
   }
 
-  return json;
+  if (!resultado.id) {
+    throw new Error(
+      'Supabase Auth no devolvió el identificador del usuario.'
+    );
+  }
+
+  return {
+    id: resultado.id,
+    email: resultado.email ?? data.email,
+  };
 }
 
 export async function actualizarAuthUsuario(
   authUserId: string,
-  cambios: { email?: string; password?: string }
+  cambios: {
+    email?: string;
+    password?: string;
+  }
 ): Promise<void> {
-  const res = await fetch('/api/admin/usuarios', {
+  const response = await fetch('/api/admin/usuarios', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ accion: 'actualizar', authUserId, ...cambios }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      accion: 'actualizar',
+      authUserId,
+      ...cambios,
+    }),
   });
 
-  const json = await res.json();
+  const resultado = await response
+    .json()
+    .catch(() => ({}));
 
-  if (!res.ok) {
-    console.warn('No se pudo actualizar el usuario en Supabase Auth:', json.error);
+  if (!response.ok) {
+    throw new Error(
+      resultado.error ??
+        'No se pudo actualizar el usuario de Supabase Auth.'
+    );
   }
 }
 
-export async function eliminarAuthUsuario(authUserId: string): Promise<void> {
-  const res = await fetch('/api/admin/usuarios', {
+export async function eliminarAuthUsuario(
+  authUserId: string
+): Promise<void> {
+  const response = await fetch('/api/admin/usuarios', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ accion: 'eliminar', authUserId }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      accion: 'eliminar',
+      authUserId,
+    }),
   });
 
-  const json = await res.json();
+  const resultado = await response
+    .json()
+    .catch(() => ({}));
 
-  if (!res.ok) {
-    console.warn('No se pudo eliminar el usuario en Supabase Auth:', json.error);
+  if (!response.ok) {
+    throw new Error(
+      resultado.error ??
+        'No se pudo eliminar el usuario de Supabase Auth.'
+    );
   }
 }
