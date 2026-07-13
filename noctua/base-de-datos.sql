@@ -225,3 +225,17 @@
 | `actualizado_en` | `timestamptz` |  Nullable |
 | `resuelto_en` | `timestamptz` |  Nullable |
 
+## Table `mozos`
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `nombre` | `varchar` |  |
+| `apellido` | `varchar` |  |
+| `zona` | `text` |  |
+| `posicion_ciclo` | `int4` |  |
+| `activo` | `bool` |  |
+| `creado_en` | `timestamptz` |  Nullable |
+

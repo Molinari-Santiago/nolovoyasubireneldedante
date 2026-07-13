@@ -2,8 +2,9 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus } from "lucide-react";
+import { Plus, Users } from "lucide-react";
 import { useMesasStore } from "@/store/mesasStore";
+import { useMozosStore } from "@/store/mozosStore";
 import { MesaModal } from "@/components/mesas/MesaModal";
 import { MesasFloorPlan } from "@/components/mesas/MesasFloorPlan";
 import { Button } from "@/components/ui/Button";
@@ -16,6 +17,15 @@ export default function MesasPage() {
   const mesasSeleccionadas = useMesasStore((s) => s.mesasSeleccionadas);
   const toggleSeleccionMesa = useMesasStore((s) => s.toggleSeleccionMesa);
   const limpiarSeleccion = useMesasStore((s) => s.limpiarSeleccion);
+  
+  // Select reactive values from mozos store
+  const lastUpdated = useMozosStore((s) => s.lastUpdated);
+  const dailyOverrides = useMozosStore((s) => s.dailyOverrides);
+  const getTurnoActual = useMozosStore((s) => s.getTurnoActual);
+  const getAsignacionesTurnoActual = useMozosStore((s) => s.getAsignacionesTurnoActual);
+  const fetchMozos = useMozosStore((s) => s.fetchMozos);
+  const suscribirCambiosMozos = useMozosStore((s) => s.suscribirCambiosMozos);
+  const desuscribirCambiosMozos = useMozosStore((s) => s.desuscribirCambiosMozos);
 
   const cargarMesas = useMesasStore((s) => s.cargarMesas);
   const suscribirCambiosMesas = useMesasStore((s) => s.suscribirCambiosMesas);
@@ -34,9 +44,14 @@ export default function MesasPage() {
 
   useEffect(() => {
     cargarMesas();
-    const unsub = suscribirCambiosMesas();
-    return unsub;
-  }, [cargarMesas, suscribirCambiosMesas]);
+    fetchMozos();
+    const unsubscribeMesas = suscribirCambiosMesas();
+    suscribirCambiosMozos();
+    return () => {
+      unsubscribeMesas();
+      desuscribirCambiosMozos();
+    };
+  }, [cargarMesas, suscribirCambiosMesas, fetchMozos, suscribirCambiosMozos, desuscribirCambiosMozos]);
 
   const handleCrearMesa = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -103,6 +118,61 @@ const cancelarEliminarMesa = () => {
 
   return (
     <div className="space-y-6">
+      {/* Mozos Asignados */}
+      <div className="bg-[#080808] border border-[#1a1a1a] rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Users size={18} className="text-violet-400" />
+            <div>
+              <h2 className="text-white font-bold tracking-widest uppercase">
+                Mozos del turno actual
+              </h2>
+              <p className="text-[#676b67] text-xs">
+                {new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+              </p>
+            </div>
+          </div>
+          {getTurnoActual() && (
+            <div className="px-3 py-1 rounded-full bg-violet-600 text-white text-sm font-semibold">
+              {getTurnoActual()}
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+          {getAsignacionesTurnoActual().map((asignacion) => {
+            // Check if this is an override
+            const today = new Date().toISOString().split('T')[0];
+            const isOverride = dailyOverrides.some(
+              o => o.fecha === today && o.turnos[asignacion.turno]?.[asignacion.zona] === asignacion.mozo.id
+            );
+            
+            return (
+              <div
+                key={asignacion.zona}
+                className={`bg-[#151515] border rounded-lg p-4 ${
+                  isOverride ? 'border-amber-500/50' : 'border-[#252525]'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-[#676b67] text-xs uppercase font-semibold">
+                    {asignacion.zona}
+                  </p>
+                  {isOverride && (
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] uppercase">
+                      Reemplazo
+                    </span>
+                  )}
+                </div>
+                <p className="text-white font-semibold">
+                  {asignacion.mozo.nombre} {asignacion.mozo.apellido}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Formulario para agregar mesas */}
       <form
         onSubmit={handleCrearMesa}

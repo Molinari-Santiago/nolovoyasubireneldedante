@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, UtensilsCrossed, ChefHat,
-  Package, Truck, Palette, Settings
+  Package, Truck, Palette, Settings, Users
 } from 'lucide-react';
 
 const sections = [
@@ -13,6 +13,7 @@ const sections = [
   { id: 'cocina', name: 'Cocina', path: '/superadm/cocina', icon: ChefHat },
   { id: 'stock', name: 'Stock', path: '/superadm/stock', icon: Package },
   { id: 'delivery', name: 'Delivery', path: '/superadm/delivery', icon: Truck },
+  { id: 'mozos', name: 'Mozos', path: '/superadm/mozos', icon: Users },
   { id: 'diseno', name: 'Diseño', path: '/superadm/diseno', icon: Palette },
   { id: 'configuracion', name: 'Configuración', path: '/superadm/configuracion', icon: Settings },
 ];
