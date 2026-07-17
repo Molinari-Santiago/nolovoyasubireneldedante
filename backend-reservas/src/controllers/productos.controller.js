@@ -20,6 +20,7 @@ function isMissingActivoColumn(error) {
   return error?.code === "42703" || String(error?.message || "").includes("productos.activo");
 }
 
+// Compatibilidad con esquemas que todavia no tienen la columna activo.
 async function insertProducto(payload, retryWithoutActivo = true) {
   const { data, error } = await supabaseAdmin
     .from("productos")
@@ -69,6 +70,9 @@ function buildProductosQuery({ categoria, disponible, filtrarActivos }) {
   return query;
 }
 
+/**
+ * Crea productos del catalogo con stock inicial.
+ */
 export const crearProducto = async (req, res) => {
   try {
     const {
@@ -214,6 +218,9 @@ export const actualizarProducto = async (req, res) => {
   }
 };
 
+/**
+ * Desactiva productos para conservar historiales de ventas.
+ */
 export const eliminarProducto = async (req, res) => {
   try {
     const { id } = req.params;

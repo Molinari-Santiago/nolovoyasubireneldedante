@@ -13,6 +13,9 @@ function mapMesa(mesa) {
   };
 }
 
+/**
+ * Crea una mesa disponible para operar en salon.
+ */
 export const crearMesa = async (req, res) => {
   try {
     const { numero, capacidad, ubicacion, zona } = req.body;
@@ -61,6 +64,9 @@ export const crearMesa = async (req, res) => {
   }
 };
 
+/**
+ * Elimina una mesa limpiando dependencias directas de pedidos.
+ */
 export const eliminarMesa = async (req, res) => {
   try {
     const { id } = req.params;
@@ -162,6 +168,9 @@ export const obtenerMesasDisponibles = async (req, res) => {
   }
 };
 
+/**
+ * Resume el estado operativo de cada mesa para el dashboard.
+ */
 export const obtenerEstadoMesas = async (req, res) => {
   try {
     const { data, error } = await supabaseAdmin

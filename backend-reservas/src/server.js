@@ -3,6 +3,7 @@ import app from "./app.js";
 
 const PORT = env.port;
 
+// Inicia Express usando el puerto validado por configuracion.
 const server = app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });

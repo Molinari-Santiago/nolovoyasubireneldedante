@@ -12,6 +12,7 @@ import {
   rechazarSinPermisoFacturacion,
 } from "../utils/authz.js";
 
+// Controlador HTTP de cuenta corriente; delega reglas de saldo al servicio.
 function enviarExcel(res, { buffer, filename }) {
   res.setHeader(
     "Content-Type",
@@ -56,6 +57,9 @@ export const obtenerCuentaCorriente = async (req, res) => {
   }
 };
 
+/**
+ * Registra pagos que acreditan la cuenta corriente del cliente.
+ */
 export const registrarPagoCliente = async (req, res) => {
   if (rechazarSinPermisoFacturacion(req, res)) return;
 
@@ -136,6 +140,9 @@ export const revertirMovimientoCliente = async (req, res) => {
   }
 };
 
+/**
+ * Descarga el detalle de cuenta corriente en Excel.
+ */
 export const exportarCuentaCorriente = async (req, res) => {
   if (rechazarSinPermisoFacturacion(req, res)) return;
 

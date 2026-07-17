@@ -2,6 +2,9 @@ import ExcelJS from "exceljs";
 
 const MONEY_FORMAT = '"$"#,##0.00;[Red]-"$"#,##0.00';
 
+/**
+ * Evita formulas inyectadas al exportar valores de usuario a Excel.
+ */
 export function sanitizarTextoExcel(value) {
   if (value === null || value === undefined) return "";
   const text = String(value);
@@ -35,6 +38,9 @@ function aplicarFormatoBase(worksheet) {
   header.alignment = { vertical: "middle" };
 }
 
+/**
+ * Genera el Excel de facturas fiscales filtradas.
+ */
 export async function generarExcelFacturas({ facturas, filtros }) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "NOCTUA";
@@ -114,6 +120,58 @@ export async function generarExcelFacturas({ facturas, filtros }) {
   return { buffer, filename };
 }
 
+/**
+ * Exporta solo movimientos de caja internos no fiscales.
+ */
+export async function generarExcelMovimientosCaja(movimientos = []) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "NOCTUA";
+  workbook.created = new Date();
+
+  const worksheet = workbook.addWorksheet("Movimientos de caja");
+  worksheet.columns = [
+    { header: "Fecha", key: "fecha", width: 18 },
+    { header: "Pedido", key: "pedido", width: 36 },
+    { header: "Mesa", key: "mesa", width: 12 },
+    { header: "Importe", key: "importe", width: 14 },
+    { header: "Motivo", key: "motivo", width: 24 },
+    { header: "Observacion", key: "observacion", width: 36 },
+    { header: "Usuario", key: "usuario", width: 22 },
+    { header: "Tipo", key: "tipo", width: 20 },
+    { header: "Metodo", key: "metodo", width: 16 },
+  ];
+
+  for (const movimiento of movimientos) {
+    worksheet.addRow({
+      fecha: asDate(movimiento.creadoEn || movimiento.creado_en),
+      pedido: sanitizarTextoExcel(movimiento.pedidoId || movimiento.pedido_id || ""),
+      mesa: sanitizarTextoExcel(movimiento.mesa?.numero || movimiento.mesas?.numero || ""),
+      importe: money(movimiento.importe),
+      motivo: sanitizarTextoExcel(movimiento.motivo || ""),
+      observacion: sanitizarTextoExcel(movimiento.observacion || ""),
+      usuario: sanitizarTextoExcel(movimiento.creadoPor || movimiento.creado_por || ""),
+      tipo: sanitizarTextoExcel(movimiento.tipo || ""),
+      metodo: sanitizarTextoExcel(movimiento.metodo || ""),
+    });
+  }
+
+  const totalRow = worksheet.addRow({
+    pedido: "Totales",
+    importe: movimientos.reduce((acc, movimiento) => acc + money(movimiento.importe), 0),
+  });
+  totalRow.font = { bold: true };
+
+  aplicarFormatoBase(worksheet);
+  worksheet.getColumn("fecha").numFmt = "dd/mm/yyyy";
+  worksheet.getColumn("importe").numFmt = MONEY_FORMAT;
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return { buffer, filename: "movimientos_caja_no_fiscal.xlsx" };
+}
+
+/**
+ * Genera el resumen detallado de cuenta corriente de un cliente.
+ */
 export async function generarExcelCuentaCorriente(detalle) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "NOCTUA";

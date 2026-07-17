@@ -24,6 +24,7 @@ app.use(cors({
 
 app.use(express.json());
 
+// Monta los modulos principales de NOCTUA bajo /api.
 app.use("/api/mesas", mesasRoutes);
 app.use("/api/reservas", reservasRoutes);
 app.use("/api/productos", productosRoutes);

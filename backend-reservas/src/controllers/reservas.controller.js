@@ -28,6 +28,9 @@ function mapReserva(reserva) {
   };
 }
 
+/**
+ * Crea una reserva validando capacidad y superposicion horaria.
+ */
 export const crearReserva = async (req, res) => {
   try {
     const {
@@ -116,6 +119,9 @@ export const crearReserva = async (req, res) => {
   }
 };
 
+/**
+ * Lista reservas ordenadas por horario de inicio.
+ */
 export const obtenerReservas = async (req, res) => {
   try {
     const { data, error } = await supabaseAdmin
@@ -165,6 +171,9 @@ export const obtenerReservaPorId = async (req, res) => {
   }
 };
 
+/**
+ * Marca una reserva como cancelada sin borrar su historial.
+ */
 export const cancelarReserva = async (req, res) => {
   try {
     const { id } = req.params;

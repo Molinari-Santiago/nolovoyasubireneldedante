@@ -10,6 +10,14 @@ export type MetodoPagoFactura =
   | 'credito'
   | 'cuenta_corriente';
 
+export type MotivoPagoInternoNoFiscal =
+  | 'prueba_interna'
+  | 'cortesia_autorizada'
+  | 'consumo_interno'
+  | 'ajuste_de_caja'
+  | 'error_operativo'
+  | 'otro';
+
 export type TipoComprobante = 1 | 6 | 11;
 
 export type ClienteFactura = {
@@ -58,6 +66,29 @@ export type PedidoListoFactura = {
     capacidad?: number;
   } | null;
   items: PedidoFacturaItem[];
+};
+
+export type MovimientoCajaNoFiscal = {
+  id: string;
+  pedidoId?: string | null;
+  mesaId?: string | null;
+  tipo: string;
+  metodo: string;
+  importe: number;
+  motivo: MotivoPagoInternoNoFiscal | string;
+  observacion?: string | null;
+  creadoPor?: string | null;
+  creadoEn?: string;
+  pedido?: {
+    id: string;
+    total?: number;
+    estado?: string | null;
+  } | null;
+  mesa?: {
+    id: string;
+    numero?: number | null;
+    zona?: string | null;
+  } | null;
 };
 
 export type Factura = {
@@ -179,13 +210,31 @@ export type CobrarPedidoPayload = {
   idempotencyKey?: string;
 };
 
+export type PagoInternoNoFiscalPayload = {
+  pedidoId: string;
+  motivo: MotivoPagoInternoNoFiscal;
+  observacion?: string;
+  recibidoPor: string;
+  montoRecibido: number;
+};
+
+export type MovimientosCajaFiltros = {
+  desde?: string;
+  hasta?: string;
+  tipo?: string;
+  pedidoId?: string;
+};
+
 type ApiRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is ApiRecord {
   return typeof value === 'object' && value !== null;
 }
 
-function getAuthHeaders() {
+/**
+ * Envia rol y usuario para que el backend aplique permisos.
+ */
+function getAuthHeaders(): Record<string, string> {
   const usuario = useAuthStore.getState().usuario;
   if (!usuario) return {};
 
@@ -193,6 +242,12 @@ function getAuthHeaders() {
     'X-Noctua-Role': usuario.rol,
     'X-Noctua-User': usuario.nombre,
   };
+}
+
+function esUuid(valor: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(valor || '')
+  );
 }
 
 function buildQuery(params: Record<string, string | number | undefined>) {
@@ -239,7 +294,7 @@ async function apiFetch<T>(
     headers: {
       'Content-Type': 'application/json',
       ...getAuthHeaders(),
-      ...(options.headers || {}),
+      ...((options.headers || {}) as Record<string, string>),
     },
   });
 
@@ -289,6 +344,9 @@ export const facturasService = {
     }>('/facturas/arca/verificar');
   },
 
+  /**
+   * Carga pedidos reales listos para facturar y descarta IDs no UUID.
+   */
   async obtenerPedidosListos(): Promise<PedidoListoFactura[]> {
     const response = await apiFetch<{
       mensaje: string;
@@ -296,7 +354,9 @@ export const facturasService = {
       pedidos: PedidoListoFactura[];
     }>('/facturas/pedidos/listos');
 
-    return Array.isArray(response.pedidos) ? response.pedidos : [];
+    return Array.isArray(response.pedidos)
+      ? response.pedidos.filter((pedido) => esUuid(pedido.id))
+      : [];
   },
 
   async cobrarPedido(payload: CobrarPedidoPayload) {
@@ -324,6 +384,36 @@ export const facturasService = {
         vuelto: payload.vuelto,
         cliente: payload.cliente,
         idempotencyKey: payload.idempotencyKey,
+      }),
+    });
+  },
+
+  /**
+   * Movimiento interno no fiscal: no llama a ARCA, no genera factura ni CAE.
+   */
+  async registrarPagoInternoNoFiscal(payload: PagoInternoNoFiscalPayload) {
+    if (!esUuid(payload.pedidoId)) {
+      throw new Error(
+        'ID de pedido invalido. Recarga los pedidos desde la base de datos antes de registrar el movimiento interno.'
+      );
+    }
+
+    return apiFetch<{
+      mensaje: string;
+      pedidoId: string;
+      pedidoCerrado: boolean;
+      mesaLiberada: boolean;
+      movimiento: MovimientoCajaNoFiscal;
+      noFiscal: true;
+      idempotente?: boolean;
+    }>(`/facturas/pedido/${payload.pedidoId}/pago-interno`, {
+      method: 'POST',
+      body: JSON.stringify({
+        pedidoId: payload.pedidoId,
+        motivo: payload.motivo,
+        observacion: payload.observacion,
+        recibidoPor: payload.recibidoPor,
+        montoRecibido: payload.montoRecibido,
       }),
     });
   },
@@ -360,6 +450,26 @@ export const facturasService = {
 
   async exportarFacturas(filtros: FacturasFiltros = {}) {
     return download(`/facturas/exportar${buildQuery(filtros)}`, 'facturas.xlsx');
+  },
+
+  /**
+   * Lista movimientos internos separados de la exportacion fiscal.
+   */
+  async obtenerMovimientosCaja(filtros: MovimientosCajaFiltros = {}): Promise<MovimientoCajaNoFiscal[]> {
+    const response = await apiFetch<{
+      mensaje: string;
+      total: number;
+      movimientos: MovimientoCajaNoFiscal[];
+    }>(`/facturas/movimientos-caja${buildQuery({ ...filtros, limit: 50 })}`);
+
+    return Array.isArray(response.movimientos) ? response.movimientos : [];
+  },
+
+  async exportarMovimientosCaja(filtros: MovimientosCajaFiltros = {}) {
+    return download(
+      `/facturas/movimientos-caja/exportar${buildQuery(filtros)}`,
+      'movimientos_caja_no_fiscal.xlsx'
+    );
   },
 
   async obtenerCuentasCorrientes(): Promise<CuentaCorrienteResumen[]> {

@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "../config/supabaseAdmin.js";
 import { solicitarCAE } from "../services/arca.service.js";
+import { generarExcelMovimientosCaja } from "../services/excel.service.js";
 import {
   buscarMovimientoPorIdempotency,
   crearDebitoFacturaCuentaCorriente,
@@ -10,6 +11,7 @@ import {
 import {
   obtenerUsuarioRequest,
   rechazarSinPermisoFacturacion,
+  rechazarSinPermisoPagoInternoNoFiscal,
 } from "../utils/authz.js";
 
 const ESTADOS_LISTOS_PARA_COBRAR = [
@@ -20,9 +22,70 @@ const ESTADOS_LISTOS_PARA_COBRAR = [
 
 const METODOS_PAGO = ["efectivo", "billetera_virtual", "debito", "credito", "cuenta_corriente"];
 const TIPOS_COMPROBANTE = [1, 6, 11];
+const MENSAJE_PAGO_INTERNO_NO_FISCAL =
+  "Movimiento interno registrado. No se emitió factura fiscal.";
+const MOTIVOS_PAGO_INTERNO_NO_FISCAL = new Set([
+  "prueba_interna",
+  "cortesia_autorizada",
+  "consumo_interno",
+  "ajuste_de_caja",
+  "error_operativo",
+  "otro",
+]);
 
 function money(value) {
   return Number(Number(value || 0).toFixed(2));
+}
+
+function esUuid(valor) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(valor || "")
+  );
+}
+
+function asNullableText(value) {
+  const text = String(value || "").trim();
+  return text || null;
+}
+
+function normalizarMotivoNoFiscal(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "_");
+}
+
+function isMissingMovimientosCaja(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    error?.code === "42P01" ||
+    error?.code === "PGRST205" ||
+    (message.includes("movimientos_caja") && message.includes("does not exist"))
+  );
+}
+
+function logPagoInternoNoFiscalError(error) {
+  console.error("Error al registrar movimiento interno no fiscal:", {
+    mensaje: error.message,
+    code: error.code,
+    details: error.details,
+    hint: error.hint,
+    ubicacion: error.stack?.split("\n")?.[1]?.trim(),
+  });
+}
+
+function errorSupabaseConContexto(error, contexto) {
+  const mensaje = error?.message || contexto;
+  const contextualizado = new Error(contexto ? `${contexto}: ${mensaje}` : mensaje);
+
+  contextualizado.code = error?.code;
+  contextualizado.details = error?.details;
+  contextualizado.hint = error?.hint;
+  contextualizado.cause = error;
+
+  return contextualizado;
 }
 
 function calcularImpuestos(total) {
@@ -147,6 +210,34 @@ function mapFactura(factura) {
   };
 }
 
+function mapMovimientoCaja(movimiento) {
+  if (!movimiento) return null;
+
+  const pedido = movimiento.pedidos || movimiento.pedido || null;
+  const mesa = movimiento.mesas || movimiento.mesa || null;
+
+  return {
+    id: movimiento.id,
+    pedidoId: movimiento.pedido_id,
+    mesaId: movimiento.mesa_id,
+    tipo: movimiento.tipo,
+    metodo: movimiento.metodo,
+    importe: money(movimiento.importe),
+    motivo: movimiento.motivo,
+    observacion: movimiento.observacion,
+    creadoPor: movimiento.creado_por,
+    creadoEn: movimiento.creado_en,
+    pedido: pedido
+      ? {
+          id: pedido.id,
+          total: money(pedido.total),
+          estado: pedido.estado,
+        }
+      : null,
+    mesa: mesa ? mapMesa(mesa) : null,
+  };
+}
+
 async function obtenerPedidoCompleto(pedidoId) {
   const { data, error } = await supabaseAdmin
     .from("pedidos")
@@ -161,10 +252,20 @@ async function obtenerPedidoCompleto(pedidoId) {
     .eq("id", pedidoId)
     .single();
 
-  if (error || !data) {
-    throw new Error(error?.message || "Pedido no encontrado");
-  }
+  if (error) throw errorSupabaseConContexto(error, "No se pudo obtener el pedido");
+  if (!data) throw new Error("Pedido no encontrado");
 
+  return data;
+}
+
+async function obtenerEstadoPedido(pedidoId) {
+  const { data, error } = await supabaseAdmin
+    .from("pedidos")
+    .select("id, estado, mesa_id")
+    .eq("id", pedidoId)
+    .maybeSingle();
+
+  if (error) throw errorSupabaseConContexto(error, "No se pudo obtener el estado del pedido");
   return data;
 }
 
@@ -177,7 +278,7 @@ async function obtenerFacturaPorMovimiento(movimiento) {
     .eq("id", movimiento.factura_id)
     .maybeSingle();
 
-  if (error) throw new Error(error.message);
+  if (error) throw errorSupabaseConContexto(error, "No se pudo obtener la factura del movimiento");
   return data;
 }
 
@@ -190,9 +291,7 @@ async function obtenerFacturaPorPedido(pedidoId) {
     .limit(1)
     .maybeSingle();
 
-  if (error) {
-    throw new Error(error.message);
-  }
+  if (error) throw errorSupabaseConContexto(error, "No se pudo verificar la factura del pedido");
 
   return data;
 }
@@ -266,11 +365,12 @@ async function crearFacturaDesdePago({
     .select()
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) throw errorSupabaseConContexto(error, "No se pudo crear la factura");
   return factura;
 }
 
 async function cerrarPedidoYLiberarMesa(pedido) {
+  // Cierra el pedido y libera la mesa asociada para terminar el flujo de cobro.
   const { data: pedidoCerrado, error: pedidoError } = await supabaseAdmin
     .from("pedidos")
     .update({ estado: "cerrada" })
@@ -278,9 +378,7 @@ async function cerrarPedidoYLiberarMesa(pedido) {
     .select("id, estado, mesa_id")
     .maybeSingle();
 
-  if (pedidoError) {
-    throw new Error(`No se pudo cerrar el pedido: ${pedidoError.message}`);
-  }
+  if (pedidoError) throw errorSupabaseConContexto(pedidoError, "No se pudo cerrar el pedido");
 
   if (!pedidoCerrado || pedidoCerrado.estado !== "cerrada") {
     throw new Error("El pedido no quedó cerrado correctamente");
@@ -299,9 +397,7 @@ async function cerrarPedidoYLiberarMesa(pedido) {
       .select("id, estado, disponible")
       .maybeSingle();
 
-    if (mesaError) {
-      throw new Error(`No se pudo liberar la mesa: ${mesaError.message}`);
-    }
+    if (mesaError) throw errorSupabaseConContexto(mesaError, "No se pudo liberar la mesa");
 
     mesaLiberada =
       Boolean(mesa) &&
@@ -316,6 +412,115 @@ async function cerrarPedidoYLiberarMesa(pedido) {
   return {
     pedidoCerrado: true,
     mesaLiberada,
+  };
+}
+
+async function obtenerMovimientoCajaNoFiscalPorPedido(pedidoId) {
+  // Se consulta sin relaciones embebidas para que la recuperacion no dependa del esquema de FK.
+  const { data, error } = await supabaseAdmin
+    .from("movimientos_caja")
+    .select("*")
+    .eq("pedido_id", pedidoId)
+    .eq("tipo", "ingreso_no_fiscal")
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+async function consultarMovimientosCaja(queryParams = {}, limit = 200) {
+  // Los movimientos internos no fiscales se exportan separados de las facturas.
+  let query = supabaseAdmin
+    .from("movimientos_caja")
+    .select(`
+      *,
+      pedidos(id, total, estado),
+      mesas(id, numero, zona, capacidad, estado, disponible)
+    `)
+    .order("creado_en", { ascending: false })
+    .limit(Math.min(Number(limit || 200), 5000));
+
+  if (queryParams.desde) query = query.gte("creado_en", `${queryParams.desde}T00:00:00.000Z`);
+  if (queryParams.hasta) query = query.lte("creado_en", `${queryParams.hasta}T23:59:59.999Z`);
+  if (queryParams.tipo) query = query.eq("tipo", queryParams.tipo);
+  if (queryParams.pedidoId) query = query.eq("pedido_id", queryParams.pedidoId);
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return data || [];
+}
+
+async function responderMovimientoCajaIdempotente(res, pedidoRaw, movimiento) {
+  const cierre = await cerrarPedidoYLiberarMesa(pedidoRaw);
+
+  return res.status(200).json({
+    mensaje: MENSAJE_PAGO_INTERNO_NO_FISCAL,
+    pedidoId: pedidoRaw.id,
+    pedidoCerrado: true,
+    mesaLiberada: cierre.mesaLiberada,
+    movimiento: mapMovimientoCaja(movimiento),
+    noFiscal: true,
+    idempotente: true,
+  });
+}
+
+async function liberarMesaNoCritica(pedido) {
+  if (!pedido?.mesa_id) return true;
+
+  try {
+    const { data: mesa, error } = await supabaseAdmin
+      .from("mesas")
+      .update({
+        estado: "libre",
+        disponible: true,
+      })
+      .eq("id", pedido.mesa_id)
+      .select("id, estado, disponible")
+      .maybeSingle();
+
+    if (error) throw error;
+    return Boolean(mesa) && mesa.estado === "libre" && mesa.disponible === true;
+  } catch (error) {
+    console.error("No se pudo verificar la liberacion de mesa del movimiento interno:", {
+      mensaje: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+
+    return false;
+  }
+}
+
+async function recuperarPagoInternoNoFiscalCompletado(pedidoId) {
+  // Recupera respuestas cuando el movimiento se guardo y el pedido ya quedo cerrado.
+  const movimiento = await obtenerMovimientoCajaNoFiscalPorPedido(pedidoId);
+  if (!movimiento) return null;
+
+  let pedido = await obtenerEstadoPedido(pedidoId);
+  if (!pedido) return null;
+
+  if (pedido.estado !== "cerrada") {
+    try {
+      await cerrarPedidoYLiberarMesa(pedido);
+    } catch (error) {
+      console.error("Error al completar cierre idempotente de pago interno:", {
+        mensaje: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      });
+    }
+
+    pedido = await obtenerEstadoPedido(pedidoId);
+  }
+
+  if (pedido?.estado !== "cerrada") return null;
+
+  return {
+    movimiento,
+    mesaLiberada: await liberarMesaNoCritica(pedido),
   };
 }
 
@@ -339,6 +544,7 @@ export const verificarARCAController = async (req, res) => {
 
 export const obtenerPedidosListosParaCobrar = async (req, res) => {
   try {
+    // Lista solo pedidos aun cobrables: sin factura fiscal y sin movimiento interno no fiscal.
     const { data: candidatos, error: pedidosError } = await supabaseAdmin
       .from("pedidos")
       .select(`
@@ -361,6 +567,7 @@ export const obtenerPedidosListosParaCobrar = async (req, res) => {
     const pedidoIds = pedidosCandidatos.map((pedido) => pedido.id);
 
     let pedidosFacturados = new Set();
+    let pedidosConMovimientoInterno = new Set();
 
     if (pedidoIds.length > 0) {
       const { data: facturas, error: facturasError } = await supabaseAdmin
@@ -377,10 +584,27 @@ export const obtenerPedidosListosParaCobrar = async (req, res) => {
           .map((factura) => factura.pedido_id)
           .filter(Boolean)
       );
+
+      const { data: movimientosCaja, error: movimientosCajaError } = await supabaseAdmin
+        .from("movimientos_caja")
+        .select("pedido_id")
+        .eq("tipo", "ingreso_no_fiscal")
+        .in("pedido_id", pedidoIds);
+
+      if (movimientosCajaError && !isMissingMovimientosCaja(movimientosCajaError)) {
+        throw new Error(movimientosCajaError.message);
+      }
+
+      pedidosConMovimientoInterno = new Set(
+        (movimientosCaja || [])
+          .map((movimiento) => movimiento.pedido_id)
+          .filter(Boolean)
+      );
     }
 
     const pedidos = pedidosCandidatos
       .filter((pedido) => !pedidosFacturados.has(pedido.id))
+      .filter((pedido) => !pedidosConMovimientoInterno.has(pedido.id))
       .map(mapPedido);
 
     return res.json({
@@ -391,6 +615,214 @@ export const obtenerPedidosListosParaCobrar = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       mensaje: "Error al obtener pedidos listos para cobrar",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Guarda el Movimiento interno no fiscal en movimientos_caja.
+ * No llama a ARCA, no inserta en facturas y no genera CAE.
+ * Cierra el pedido y libera la mesa; no reemplaza una factura fiscal cuando corresponde.
+ */
+export const registrarPagoInternoNoFiscal = async (req, res) => {
+  if (rechazarSinPermisoPagoInternoNoFiscal(req, res)) return;
+
+  let pedidoId = req.params.pedidoId || req.body.pedidoId;
+
+  try {
+    const { motivo, observacion, recibidoPor, montoRecibido } = req.body;
+
+    if (!pedidoId) {
+      return res.status(400).json({ mensaje: "El ID del pedido es obligatorio" });
+    }
+
+    if (!esUuid(pedidoId)) {
+      return res.status(400).json({
+        mensaje:
+          "ID de pedido invalido. Recarga los pedidos desde la base de datos antes de registrar el movimiento interno.",
+      });
+    }
+
+    let pedidoRaw;
+    try {
+      pedidoRaw = await obtenerPedidoCompleto(pedidoId);
+    } catch (error) {
+      return res.status(404).json({
+        mensaje: "Pedido no encontrado.",
+      });
+    }
+
+    const facturaExistente = await obtenerFacturaPorPedido(pedidoId);
+    if (facturaExistente) {
+      return res.status(409).json({
+        mensaje: "El pedido ya tiene una factura fiscal emitida",
+      });
+    }
+
+    const movimientoExistente = await obtenerMovimientoCajaNoFiscalPorPedido(pedidoId);
+    if (movimientoExistente) {
+      return responderMovimientoCajaIdempotente(res, pedidoRaw, movimientoExistente);
+    }
+
+    const pedido = mapPedido(pedidoRaw);
+    if (!pedido.items.length) {
+      return res.status(400).json({
+        mensaje: "No se puede cerrar internamente un pedido sin productos",
+      });
+    }
+
+    if (pedido.estado === "cerrada") {
+      return res.status(400).json({ mensaje: "Este pedido ya fue cerrado" });
+    }
+
+    if (!ESTADOS_LISTOS_PARA_COBRAR.includes(pedido.estado)) {
+      return res.status(400).json({
+        mensaje: "El pedido todavia no esta listo para cobrar",
+        estadoActual: pedido.estado,
+      });
+    }
+
+    const motivoNormalizado = normalizarMotivoNoFiscal(motivo);
+    const observacionTexto = asNullableText(observacion);
+    if (!motivoNormalizado || !MOTIVOS_PAGO_INTERNO_NO_FISCAL.has(motivoNormalizado)) {
+      return res.status(400).json({ mensaje: "El motivo del movimiento interno es obligatorio" });
+    }
+
+    if (motivoNormalizado === "otro" && !observacionTexto) {
+      return res.status(400).json({
+        mensaje: "La observacion es obligatoria cuando el motivo es otro",
+      });
+    }
+
+    const montoNumero = money(montoRecibido);
+    if (!Number.isFinite(montoNumero) || montoNumero < Number(pedido.total || 0)) {
+      return res.status(400).json({
+        mensaje: "El monto recibido no puede ser menor al total del pedido",
+      });
+    }
+
+    const usuario = obtenerUsuarioRequest(req);
+    const creadoPor = asNullableText(recibidoPor) || usuario.nombre || usuario.rol || null;
+
+    const { data: movimiento, error: movimientoError } = await supabaseAdmin
+      .from("movimientos_caja")
+      .insert({
+        pedido_id: pedido.id,
+        mesa_id: pedido.mesaId,
+        tipo: "ingreso_no_fiscal",
+        metodo: "efectivo",
+        importe: montoNumero,
+        motivo: motivoNormalizado,
+        observacion: observacionTexto,
+        creado_por: creadoPor,
+      })
+      .select("*")
+      .single();
+
+    if (movimientoError) {
+      if (movimientoError.code === "23505") {
+        const existente = await obtenerMovimientoCajaNoFiscalPorPedido(pedidoId);
+        if (existente) {
+          return responderMovimientoCajaIdempotente(res, pedidoRaw, existente);
+        }
+      }
+
+      throw movimientoError;
+    }
+
+    const cierre = await cerrarPedidoYLiberarMesa(pedidoRaw);
+
+    return res.status(201).json({
+      mensaje: MENSAJE_PAGO_INTERNO_NO_FISCAL,
+      pedidoId: pedido.id,
+      pedidoCerrado: true,
+      mesaLiberada: cierre.mesaLiberada,
+      movimiento: mapMovimientoCaja(movimiento),
+      noFiscal: true,
+    });
+  } catch (error) {
+    logPagoInternoNoFiscalError(error);
+
+    if (pedidoId && esUuid(pedidoId)) {
+      try {
+        const recuperado = await recuperarPagoInternoNoFiscalCompletado(pedidoId);
+
+        if (recuperado) {
+          return res.status(200).json({
+            mensaje: MENSAJE_PAGO_INTERNO_NO_FISCAL,
+            noFiscal: true,
+            pedidoId,
+            pedidoCerrado: true,
+            mesaLiberada: recuperado.mesaLiberada,
+            movimiento: mapMovimientoCaja(recuperado.movimiento),
+            recuperado: true,
+          });
+        }
+      } catch (recoveryError) {
+        console.error("Error al verificar recuperacion de pago interno no fiscal:", {
+          mensaje: recoveryError.message,
+          code: recoveryError.code,
+          details: recoveryError.details,
+          hint: recoveryError.hint,
+        });
+      }
+    }
+
+    const mensaje = isMissingMovimientosCaja(error)
+      ? "Falta aplicar el SQL de movimientos de caja no fiscales"
+      : "Error al registrar movimiento interno no fiscal";
+
+    return res.status(500).json({
+      mensaje,
+      error: error.message,
+    });
+  }
+};
+
+export const obtenerMovimientosCaja = async (req, res) => {
+  if (rechazarSinPermisoPagoInternoNoFiscal(req, res)) return;
+
+  try {
+    const movimientos = await consultarMovimientosCaja(req.query, req.query.limit || 200);
+
+    return res.json({
+      mensaje: "Movimientos de caja obtenidos correctamente",
+      total: movimientos.length,
+      movimientos: movimientos.map(mapMovimientoCaja),
+    });
+  } catch (error) {
+    const mensaje = isMissingMovimientosCaja(error)
+      ? "Falta aplicar el SQL de movimientos de caja no fiscales"
+      : "Error al obtener movimientos de caja";
+
+    return res.status(500).json({
+      mensaje,
+      error: error.message,
+    });
+  }
+};
+
+export const exportarMovimientosCaja = async (req, res) => {
+  if (rechazarSinPermisoPagoInternoNoFiscal(req, res)) return;
+
+  try {
+    const movimientos = await consultarMovimientosCaja(req.query, 5000);
+    const excel = await generarExcelMovimientosCaja(movimientos.map(mapMovimientoCaja));
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="${excel.filename}"`);
+    return res.send(Buffer.from(excel.buffer));
+  } catch (error) {
+    const mensaje = isMissingMovimientosCaja(error)
+      ? "Falta aplicar el SQL de movimientos de caja no fiscales"
+      : "No se pudo generar la exportacion de movimientos de caja";
+
+    return res.status(500).json({
+      mensaje,
       error: error.message,
     });
   }

@@ -1,3 +1,6 @@
+/**
+ * Solicita o simula CAE para facturacion fiscal.
+ */
 export const solicitarCAE = async (datosFactura) => {
   const numeroComprobanteSimulado = Math.floor(Math.random() * 90000000) + 10000000;
 

@@ -11,6 +11,7 @@ import {
 import {
   AlertTriangle,
   CheckCircle,
+  Download,
   RefreshCcw,
   ShieldCheck,
   Users,
@@ -23,7 +24,15 @@ import {
 import { FormularioCobro } from '@/components/facturas/FormularioCobro';
 import { PedidoSelector } from '@/components/facturas/PedidoSelector';
 import { TablaFacturas } from '@/components/facturas/TablaFacturas';
+import { Modal } from '@/components/ui/Modal';
 import { cn } from '@/hooks/lib/utils';
+import { useAuthStore } from '@/store/authStore';
+import {
+  ADVERTENCIA_PAGO_INTERNO_NO_FISCAL,
+  MOTIVOS_PAGO_INTERNO_NO_FISCAL,
+  RESULTADO_PAGO_INTERNO_NO_FISCAL,
+  formatearARS,
+} from '@/components/facturas/facturasConstants';
 
 import {
   facturasService,
@@ -31,6 +40,8 @@ import {
   type Factura,
   type FacturasFiltros,
   type MetodoPagoFactura,
+  type MotivoPagoInternoNoFiscal,
+  type MovimientoCajaNoFiscal,
   type Pago,
   type PedidoListoFactura,
   type TipoComprobante,
@@ -43,6 +54,11 @@ type MensajeUI =
       detalle?: string;
     }
   | null;
+
+type CargarDatosOptions = {
+  mostrarError?: boolean;
+  seleccionarSiguiente?: boolean;
+};
 
 /**
  * Genera una clave única para evitar operaciones duplicadas,
@@ -78,12 +94,38 @@ function descargarBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function formatearFechaMovimiento(value?: string) {
+  if (!value) return '-';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+
+  return new Intl.DateTimeFormat('es-AR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(date);
+}
+
+function obtenerMotivoPagoInternoLabel(value?: string) {
+  return (
+    MOTIVOS_PAGO_INTERNO_NO_FISCAL.find(
+      (motivo) => motivo.value === value
+    )?.label ||
+    value ||
+    '-'
+  );
+}
+
 export default function FacturasPage() {
   const [pedidos, setPedidos] = useState<
     PedidoListoFactura[]
   >([]);
 
   const [facturas, setFacturas] = useState<Factura[]>([]);
+
+  const [movimientosCaja, setMovimientosCaja] = useState<
+    MovimientoCajaNoFiscal[]
+  >([]);
 
   const [
     pedidoSeleccionadoId,
@@ -99,9 +141,13 @@ export default function FacturasPage() {
     useState(false);
 
   const [cobrando, setCobrando] = useState(false);
+  const cobrandoRef = useRef(false);
   const [exportando, setExportando] = useState(false);
+  const [exportandoMovimientos, setExportandoMovimientos] =
+    useState(false);
 
   const exportandoRef = useRef(false);
+  const exportandoMovimientosRef = useRef(false);
 
   const [metodoPago, setMetodoPago] =
     useState<MetodoPagoFactura>('efectivo');
@@ -135,8 +181,23 @@ export default function FacturasPage() {
   const [clienteCuenta, setClienteCuenta] =
     useState<ClienteFacturaInput>({});
 
+  const [pagoInternoSeleccionado, setPagoInternoSeleccionado] =
+    useState(false);
+
+  const [motivoPagoInterno, setMotivoPagoInterno] =
+    useState<MotivoPagoInternoNoFiscal>('prueba_interna');
+
+  const [observacionPagoInterno, setObservacionPagoInterno] =
+    useState('');
+
+  const [confirmandoPagoInterno, setConfirmandoPagoInterno] =
+    useState(false);
+
   const [filtros, setFiltros] =
     useState<FacturasFiltros>({});
+
+  const usuario = useAuthStore((state) => state.usuario);
+  const puedeRegistrarPagoInterno = usuario?.rol === 'admin';
 
   /**
    * Busca el pedido seleccionado dentro de la lista actual.
@@ -178,18 +239,29 @@ export default function FacturasPage() {
    * Carga los pedidos disponibles y las facturas emitidas.
    *
    * Si el pedido actualmente seleccionado ya no existe,
-   * selecciona automáticamente el siguiente disponible.
+   * puede seleccionar el siguiente disponible.
    */
-  const cargarDatos = useCallback(async () => {
+  const cargarDatos = useCallback(async (options: CargarDatosOptions = {}) => {
+    const mostrarError = options.mostrarError ?? true;
+    const seleccionarSiguiente = options.seleccionarSiguiente ?? true;
+
     try {
       setLoading(true);
 
       const [
         pedidosListos,
         facturasEmitidas,
+        movimientosInternos,
       ] = await Promise.all([
         facturasService.obtenerPedidosListos(),
         facturasService.obtenerFacturas(filtros),
+        puedeRegistrarPagoInterno
+          ? facturasService.obtenerMovimientosCaja({
+              desde: filtros.desde,
+              hasta: filtros.hasta,
+              tipo: 'ingreso_no_fiscal',
+            }).catch(() => [])
+          : Promise.resolve([]),
       ]);
 
       const pedidosDisponibles = Array.isArray(
@@ -204,8 +276,15 @@ export default function FacturasPage() {
         ? facturasEmitidas
         : [];
 
+      const movimientosDisponibles = Array.isArray(
+        movimientosInternos
+      )
+        ? movimientosInternos
+        : [];
+
       setPedidos(pedidosDisponibles);
       setFacturas(facturasDisponibles);
+      setMovimientosCaja(movimientosDisponibles);
 
       const pedidoActualSigueDisponible =
         pedidosDisponibles.some(
@@ -214,8 +293,9 @@ export default function FacturasPage() {
         );
 
       if (!pedidoActualSigueDisponible) {
-        const siguientePedido =
-          pedidosDisponibles[0] ?? null;
+        const siguientePedido = seleccionarSiguiente
+          ? pedidosDisponibles[0] ?? null
+          : null;
 
         setPedidoSeleccionadoId(
           siguientePedido?.id ?? ''
@@ -228,14 +308,16 @@ export default function FacturasPage() {
         setPagoPendiente(null);
       }
     } catch (error) {
-      mostrarMensaje({
-        tipo: 'error',
-        titulo: 'Error al cargar facturas',
-        detalle:
-          error instanceof Error
-            ? error.message
-            : 'No se pudieron cargar los datos.',
-      });
+      if (mostrarError) {
+        mostrarMensaje({
+          tipo: 'error',
+          titulo: 'Error al cargar facturas',
+          detalle:
+            error instanceof Error
+              ? error.message
+              : 'No se pudieron cargar los datos.',
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -243,6 +325,7 @@ export default function FacturasPage() {
     filtros,
     mostrarMensaje,
     pedidoSeleccionadoId,
+    puedeRegistrarPagoInterno,
   ]);
 
   /**
@@ -298,6 +381,10 @@ export default function FacturasPage() {
     setMontoRecibido(0);
     setPagoPendiente(null);
     setClienteCuenta({});
+    setPagoInternoSeleccionado(false);
+    setMotivoPagoInterno('prueba_interna');
+    setObservacionPagoInterno('');
+    setConfirmandoPagoInterno(false);
   }, []);
 
   /**
@@ -328,6 +415,10 @@ export default function FacturasPage() {
    * inmediatamente de las opciones de cobro.
    */
   const cobrarPedido = useCallback(async () => {
+    if (cobrandoRef.current) return;
+
+    mostrarMensaje(null);
+
     if (!pedidoSeleccionado) {
       mostrarMensaje({
         tipo: 'warning',
@@ -414,6 +505,8 @@ export default function FacturasPage() {
      */
     const pedidoCobradoId =
       pedidoSeleccionado.id;
+
+    cobrandoRef.current = true;
 
     try {
       setCobrando(true);
@@ -511,7 +604,7 @@ export default function FacturasPage() {
        * Consultamos nuevamente el backend para confirmar
        * que el pedido realmente dejó de estar disponible.
        */
-      await cargarDatos();
+      await cargarDatos({ mostrarError: false, seleccionarSiguiente: false });
     } catch (error) {
       /*
        * Puede ocurrir que la factura se haya registrado
@@ -549,7 +642,7 @@ export default function FacturasPage() {
           });
 
           limpiarFormulario();
-          await cargarDatos();
+          await cargarDatos({ mostrarError: false, seleccionarSiguiente: false });
 
           return;
         }
@@ -569,6 +662,7 @@ export default function FacturasPage() {
             : 'No se pudo cobrar el pedido',
       });
     } finally {
+      cobrandoRef.current = false;
       setCobrando(false);
     }
   }, [
@@ -576,6 +670,7 @@ export default function FacturasPage() {
     bancoTarjeta,
     cargarDatos,
     clienteCuenta,
+    cobrandoRef,
     filtros,
     limpiarFormulario,
     marcaTarjeta,
@@ -591,6 +686,175 @@ export default function FacturasPage() {
   ]);
 
   /**
+   * Abre la confirmacion personalizada del pago interno no fiscal.
+   */
+  const solicitarPagoInterno = useCallback(() => {
+    if (cobrandoRef.current) return;
+
+    mostrarMensaje(null);
+
+    if (!puedeRegistrarPagoInterno) {
+      mostrarMensaje({
+        tipo: 'error',
+        titulo: 'Sin permiso',
+        detalle:
+          'Solo administradores pueden registrar Pago interno no fiscal.',
+      });
+
+      return;
+    }
+
+    if (!pedidoSeleccionado) {
+      mostrarMensaje({
+        tipo: 'warning',
+        titulo: 'Selecciona un pedido',
+        detalle: 'No hay pedido seleccionado.',
+      });
+
+      return;
+    }
+
+    if (!recibidoPor.trim()) {
+      mostrarMensaje({
+        tipo: 'warning',
+        titulo: 'Falta responsable',
+        detalle: 'Indica quien recibe el movimiento interno.',
+      });
+
+      return;
+    }
+
+    if (
+      Number(montoRecibido || 0) <
+      Number(pedidoSeleccionado.total || 0)
+    ) {
+      mostrarMensaje({
+        tipo: 'warning',
+        titulo: 'Monto insuficiente',
+        detalle:
+          'El monto recibido no puede ser menor al total del pedido.',
+      });
+
+      return;
+    }
+
+    if (
+      motivoPagoInterno === 'otro' &&
+      !observacionPagoInterno.trim()
+    ) {
+      mostrarMensaje({
+        tipo: 'warning',
+        titulo: 'Falta observacion',
+        detalle:
+          'Cuando el motivo es otro, la observacion es obligatoria.',
+      });
+
+      return;
+    }
+
+    setConfirmandoPagoInterno(true);
+  }, [
+    cobrandoRef,
+    montoRecibido,
+    motivoPagoInterno,
+    mostrarMensaje,
+    observacionPagoInterno,
+    pedidoSeleccionado,
+    puedeRegistrarPagoInterno,
+    recibidoPor,
+  ]);
+
+  /**
+   * Registra el movimiento interno sin validar ARCA ni emitir factura.
+   */
+  const registrarPagoInterno = useCallback(async () => {
+    if (cobrandoRef.current) return;
+    if (!pedidoSeleccionado || !puedeRegistrarPagoInterno) return;
+
+    mostrarMensaje(null);
+
+    const pedidoCobradoId = pedidoSeleccionado.id;
+
+    cobrandoRef.current = true;
+
+    try {
+      setCobrando(true);
+
+      await facturasService.registrarPagoInternoNoFiscal({
+        pedidoId: pedidoCobradoId,
+        motivo: motivoPagoInterno,
+        observacion: observacionPagoInterno,
+        recibidoPor,
+        montoRecibido,
+      });
+
+      setPedidos((actuales) =>
+        actuales.filter(
+          (pedido) => pedido.id !== pedidoCobradoId
+        )
+      );
+
+      mostrarMensaje({
+        tipo: 'success',
+        titulo: 'Movimiento interno registrado',
+        detalle: RESULTADO_PAGO_INTERNO_NO_FISCAL,
+      });
+
+      limpiarFormulario();
+      await cargarDatos({ mostrarError: false, seleccionarSiguiente: false });
+    } catch (error) {
+      try {
+        const pedidosActualizados = await facturasService.obtenerPedidosListos();
+        const pedidoSigueDisponible = pedidosActualizados.some(
+          (pedido) => pedido.id === pedidoCobradoId
+        );
+
+        if (!pedidoSigueDisponible) {
+          setPedidos(pedidosActualizados);
+          limpiarFormulario();
+
+          mostrarMensaje({
+            tipo: 'success',
+            titulo: 'Movimiento interno registrado',
+            detalle: RESULTADO_PAGO_INTERNO_NO_FISCAL,
+          });
+
+          await cargarDatos({ mostrarError: false, seleccionarSiguiente: false });
+          return;
+        }
+
+        setPedidos(pedidosActualizados);
+      } catch {
+        // Si la recuperacion tambien falla, se muestra el error original.
+      }
+
+      mostrarMensaje({
+        tipo: 'error',
+        titulo: 'Error al registrar movimiento',
+        detalle:
+          error instanceof Error
+            ? error.message
+            : 'No se pudo registrar el movimiento interno.',
+      });
+    } finally {
+      setConfirmandoPagoInterno(false);
+      cobrandoRef.current = false;
+      setCobrando(false);
+    }
+  }, [
+    cargarDatos,
+    cobrandoRef,
+    limpiarFormulario,
+    montoRecibido,
+    motivoPagoInterno,
+    mostrarMensaje,
+    observacionPagoInterno,
+    pedidoSeleccionado,
+    puedeRegistrarPagoInterno,
+    recibidoPor,
+  ]);
+
+  /**
    * Confirma un pago temporal en efectivo.
    *
    * Después de confirmar:
@@ -601,6 +865,10 @@ export default function FacturasPage() {
    */
   const confirmarEfectivo =
     useCallback(async () => {
+      if (cobrandoRef.current) return;
+
+      mostrarMensaje(null);
+
       if (!pagoPendiente) {
         mostrarMensaje({
           tipo: 'warning',
@@ -619,6 +887,8 @@ export default function FacturasPage() {
       const pedidoCobradoId =
         pagoPendiente.pedidoId ||
         pedidoSeleccionadoId;
+
+      cobrandoRef.current = true;
 
       try {
         setCobrando(true);
@@ -660,7 +930,7 @@ export default function FacturasPage() {
          * Confirmamos nuevamente el estado real
          * consultando el backend.
          */
-        await cargarDatos();
+        await cargarDatos({ mostrarError: false, seleccionarSiguiente: false });
       } catch (error) {
         mostrarMensaje({
           tipo: 'error',
@@ -672,10 +942,12 @@ export default function FacturasPage() {
               : 'No se pudo confirmar el efectivo',
         });
       } finally {
+        cobrandoRef.current = false;
         setCobrando(false);
       }
     }, [
       cargarDatos,
+      cobrandoRef,
       limpiarFormulario,
       montoRecibido,
       mostrarMensaje,
@@ -735,6 +1007,14 @@ export default function FacturasPage() {
     void cobrarPedido();
   }, [cobrarPedido]);
 
+  const handleSolicitarPagoInterno = useCallback(() => {
+    solicitarPagoInterno();
+  }, [solicitarPagoInterno]);
+
+  const handleRegistrarPagoInterno = useCallback(() => {
+    void registrarPagoInterno();
+  }, [registrarPagoInterno]);
+
   /**
    * Confirma el efectivo desde el formulario.
    */
@@ -742,6 +1022,55 @@ export default function FacturasPage() {
     useCallback(() => {
       void confirmarEfectivo();
     }, [confirmarEfectivo]);
+
+  /**
+   * Exporta los movimientos internos en un archivo separado.
+   */
+  const exportarMovimientosCaja =
+    useCallback(async () => {
+      if (exportandoMovimientosRef.current) return;
+
+      exportandoMovimientosRef.current = true;
+
+      try {
+        setExportandoMovimientos(true);
+
+        const archivo =
+          await facturasService.exportarMovimientosCaja({
+            desde: filtros.desde,
+            hasta: filtros.hasta,
+            tipo: 'ingreso_no_fiscal',
+          });
+
+        descargarBlob(
+          archivo.blob,
+          archivo.filename
+        );
+
+        mostrarMensaje({
+          tipo: 'success',
+          titulo: 'Exportacion lista',
+          detalle:
+            'El Excel de movimientos de caja fue generado.',
+        });
+      } catch (error) {
+        mostrarMensaje({
+          tipo: 'error',
+          titulo: 'Error al exportar',
+          detalle:
+            error instanceof Error
+              ? error.message
+              : 'No se pudo generar el Excel.',
+        });
+      } finally {
+        exportandoMovimientosRef.current = false;
+        setExportandoMovimientos(false);
+      }
+    }, [
+      filtros.desde,
+      filtros.hasta,
+      mostrarMensaje,
+    ]);
 
   /**
    * Carga inicial de pedidos y facturas.
@@ -881,6 +1210,18 @@ export default function FacturasPage() {
           clienteCuenta={clienteCuenta}
           pagoPendiente={pagoPendiente}
           cobrando={cobrando}
+          pagoInternoSeleccionado={
+            pagoInternoSeleccionado
+          }
+          motivoPagoInterno={
+            motivoPagoInterno
+          }
+          observacionPagoInterno={
+            observacionPagoInterno
+          }
+          puedeRegistrarPagoInterno={
+            puedeRegistrarPagoInterno
+          }
           onMetodoPagoChange={setMetodoPago}
           onTipoComprobanteChange={
             setTipoComprobante
@@ -906,9 +1247,21 @@ export default function FacturasPage() {
           onClienteCuentaChange={
             setClienteCuenta
           }
+          onPagoInternoSeleccionadoChange={
+            setPagoInternoSeleccionado
+          }
+          onMotivoPagoInternoChange={
+            setMotivoPagoInterno
+          }
+          onObservacionPagoInternoChange={
+            setObservacionPagoInterno
+          }
           onCobrar={handleCobrar}
           onConfirmarEfectivo={
             handleConfirmarEfectivo
+          }
+          onSolicitarPagoInterno={
+            handleSolicitarPagoInterno
           }
         />
       </div>
@@ -922,6 +1275,130 @@ export default function FacturasPage() {
           void exportarFacturas();
         }}
       />
+
+      {puedeRegistrarPagoInterno && (
+        <section className="rounded-2xl border border-[#1a1a1a] bg-[#080808] p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-4">
+            <h2 className="font-black tracking-widest uppercase text-sm">Movimientos de caja</h2>
+
+            <button
+              type="button"
+              onClick={() => {
+                void exportarMovimientosCaja();
+              }}
+              disabled={exportandoMovimientos}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm font-bold text-yellow-200 hover:bg-yellow-500/20 disabled:opacity-50"
+            >
+              <Download size={16} />
+              {exportandoMovimientos
+                ? 'Exportando...'
+                : 'Exportar movimientos'}
+            </button>
+          </div>
+
+          {movimientosCaja.length === 0 ? (
+            <p className="text-sm text-[#676B67]">Todavia no hay movimientos de caja para los filtros seleccionados.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[960px] text-sm">
+                <thead>
+                  <tr className="border-b border-[#1a1a1a] text-left text-[#676B67]">
+                    <th className="py-3">Fecha</th>
+                    <th className="py-3">Pedido</th>
+                    <th className="py-3">Mesa</th>
+                    <th className="py-3">Importe</th>
+                    <th className="py-3">Motivo</th>
+                    <th className="py-3">Observacion</th>
+                    <th className="py-3">Usuario</th>
+                    <th className="py-3">Tipo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {movimientosCaja.map((movimiento) => (
+                    <tr key={movimiento.id} className="border-b border-[#111]">
+                      <td className="py-3">{formatearFechaMovimiento(movimiento.creadoEn)}</td>
+                      <td className="py-3 font-mono text-xs">{movimiento.pedidoId || '-'}</td>
+                      <td className="py-3">{movimiento.mesa?.numero || '-'}</td>
+                      <td className="py-3 font-mono">{formatearARS(movimiento.importe)}</td>
+                      <td className="py-3">{obtenerMotivoPagoInternoLabel(movimiento.motivo)}</td>
+                      <td className="py-3 text-[#BCB9B9]">{movimiento.observacion || '-'}</td>
+                      <td className="py-3">{movimiento.creadoPor || '-'}</td>
+                      <td className="py-3">
+                        <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-3 py-1 text-xs font-bold text-yellow-200">
+                          {movimiento.tipo}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      <Modal
+        isOpen={confirmandoPagoInterno}
+        onClose={() => {
+          if (!cobrando) {
+            setConfirmandoPagoInterno(false);
+          }
+        }}
+        title="Pago interno no fiscal"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="rounded-xl border border-yellow-500/40 bg-yellow-500/10 p-4 text-yellow-100">
+            <p className="text-sm font-semibold">
+              {ADVERTENCIA_PAGO_INTERNO_NO_FISCAL}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-[#676B67] uppercase tracking-widest text-xs font-bold">Pedido</p>
+              <p className="mt-1 font-mono">{pedidoSeleccionado?.id || '-'}</p>
+            </div>
+            <div>
+              <p className="text-[#676B67] uppercase tracking-widest text-xs font-bold">Mesa</p>
+              <p className="mt-1">{pedidoSeleccionado?.mesa?.numero || '-'}</p>
+            </div>
+            <div>
+              <p className="text-[#676B67] uppercase tracking-widest text-xs font-bold">Importe</p>
+              <p className="mt-1 font-mono">{formatearARS(Number(montoRecibido || 0))}</p>
+            </div>
+            <div>
+              <p className="text-[#676B67] uppercase tracking-widest text-xs font-bold">Motivo</p>
+              <p className="mt-1">{obtenerMotivoPagoInternoLabel(motivoPagoInterno)}</p>
+            </div>
+            <div className="sm:col-span-2">
+              <p className="text-[#676B67] uppercase tracking-widest text-xs font-bold">Observacion</p>
+              <p className="mt-1 text-[#BCB9B9]">{observacionPagoInterno || '-'}</p>
+            </div>
+          </div>
+
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end pt-2">
+            <button
+              type="button"
+              onClick={() => setConfirmandoPagoInterno(false)}
+              disabled={cobrando}
+              className="rounded-xl border border-[#2a2a2a] bg-black px-4 py-3 text-sm font-bold text-[#BCB9B9] hover:bg-[#151515] disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handleRegistrarPagoInterno}
+              disabled={cobrando}
+              className="rounded-xl bg-yellow-300 px-4 py-3 text-sm font-black text-black hover:bg-yellow-200 disabled:opacity-50"
+            >
+              {cobrando
+                ? 'Procesando...'
+                : 'Confirmar movimiento interno'}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

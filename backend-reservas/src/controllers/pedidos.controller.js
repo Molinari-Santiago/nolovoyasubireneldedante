@@ -155,6 +155,9 @@ async function restaurarStockDePedido(pedidoId) {
   }
 }
 
+/**
+ * Abre o recupera el pedido activo de una mesa.
+ */
 export const abrirPedido = async (req, res) => {
   try {
     const { mesaId, comensales } = req.body;
@@ -276,6 +279,9 @@ export const obtenerPedidoPorId = async (req, res) => {
   }
 };
 
+/**
+ * Agrega productos al pedido y descuenta stock cuando corresponde.
+ */
 export const agregarProductoAlPedido = async (req, res) => {
   try {
     const { id } = req.params;
@@ -369,6 +375,9 @@ export const agregarProductoAlPedido = async (req, res) => {
   }
 };
 
+/**
+ * Cierra el pedido desde operaciones de salon y libera la mesa.
+ */
 export const cerrarPedido = async (req, res) => {
   try {
     const { id } = req.params;
@@ -402,6 +411,9 @@ export const cerrarPedido = async (req, res) => {
   }
 };
 
+/**
+ * Cancela un pedido y restaura stock antes de liberar la mesa.
+ */
 export const cancelarPedido = async (req, res) => {
   try {
     const { id } = req.params;
@@ -447,6 +459,9 @@ const PEDIDO_A_MESA_ESTADO = {
   cancelado: "libre",
 };
 
+/**
+ * Sincroniza el estado de cocina del pedido con la mesa.
+ */
 export const actualizarEstado = async (req, res) => {
   try {
     const { id } = req.params;

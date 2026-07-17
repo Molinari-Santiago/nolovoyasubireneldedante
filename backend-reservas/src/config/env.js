@@ -3,6 +3,7 @@ import { config } from "dotenv";
 config();
 config({ path: ".env.local", override: false });
 
+// Variables obligatorias del backend; no se envian al frontend.
 const requiredEnv = [
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",

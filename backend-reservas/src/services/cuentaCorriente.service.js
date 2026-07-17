@@ -17,6 +17,7 @@ function asNullableText(value) {
   return text || null;
 }
 
+// Servicios de cuenta corriente para saldos, pagos y ajustes por cliente.
 export function mapCliente(cliente) {
   if (!cliente) return null;
 
@@ -89,6 +90,9 @@ export async function obtenerClientePorId(clienteId) {
   return data;
 }
 
+/**
+ * Reutiliza un cliente existente o crea uno para facturar a cuenta corriente.
+ */
 export async function obtenerOCrearCliente(input = {}) {
   const clienteId = asNullableText(input.clienteId || input.id);
   if (clienteId) return obtenerClientePorId(clienteId);
@@ -165,6 +169,9 @@ export async function buscarMovimientoPorIdempotency(idempotencyKey) {
   return buscarMovimientoPorCampo("idempotency_key", asNullableText(idempotencyKey));
 }
 
+/**
+ * Registra debitos y creditos idempotentes en la cuenta corriente.
+ */
 export async function crearMovimientoCuentaCorriente({
   clienteId,
   tipo,
@@ -347,6 +354,9 @@ export async function obtenerDetalleCuentaCorriente(clienteId) {
   };
 }
 
+/**
+ * Guarda un pago de cliente y acredita el saldo de cuenta corriente.
+ */
 export async function registrarPagoCuentaCorriente({
   clienteId,
   importe,
@@ -429,6 +439,9 @@ export async function registrarAjusteCuentaCorriente({
   });
 }
 
+/**
+ * Crea el movimiento inverso sin borrar el historial original.
+ */
 export async function revertirMovimientoCuentaCorriente({
   movimientoId,
   motivo,
